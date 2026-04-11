@@ -45,7 +45,7 @@ class NotificationService : NotificationListenerService() {
         val packageName = sbn.packageName
         if (packageName == applicationContext.packageName) return
 
-        val enabledApps = prefs.getStringList("flutter.enabled_apps_set", null)
+        val enabledApps = prefs.getStringSet("flutter.enabled_apps_set", null)
         if (enabledApps != null && enabledApps.isNotEmpty() && !enabledApps.contains(packageName)) return
 
         val extras = sbn.notification.extras
