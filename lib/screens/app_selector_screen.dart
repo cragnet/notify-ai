@@ -10,62 +10,49 @@ class AppSelectorScreen extends StatefulWidget {
   State<AppSelectorScreen> createState() => _AppSelectorScreenState();
 }
 
-class _AppSelectorScreenState extends State<AppSelectorScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabs;
-  List<Map<String, String>> _all = [];
+class _AppSelectorScreenState extends State<AppSelectorScreen> {
+  List<Map<String, String>> _apps = [];
   bool _loading = true;
+  String _error = '';
   String _search = '';
-
-  static const _chatPackages = {
-    'com.whatsapp', 'org.telegram.messenger', 'org.telegram.plus',
-    'com.facebook.orca', 'com.facebook.lite', 'com.instagram.android',
-    'com.snapchat.android', 'com.discord', 'com.viber.voip',
-    'com.skype.raider', 'com.microsoft.teams', 'com.slack',
-    'org.thoughtcrime.securesms', 'com.google.android.apps.messaging',
-    'com.samsung.android.messaging', 'com.android.mms',
-    'com.twitter.android', 'com.linkedin.android', 'com.tiktok',
-    'com.wire', 'com.groupme.android', 'jp.naver.line.android',
-  };
-
-  static const _emailPackages = {
-    'com.google.android.gm', 'com.microsoft.office.outlook',
-    'com.yahoo.mobile.client.android.mail', 'me.bluemail.mail',
-    'net.thunderbird.android', 'com.aqua.mail', 'com.fastmail.app',
-    'com.protonmail.protonmail', 'ch.protonmail.android',
-  };
+  final _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
-    _loadApps();
+    _scan();
   }
 
   @override
   void dispose() {
-    _tabs.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadApps() async {
-    final apps = await PermissionsService.getInstalledApps();
-    if (mounted) setState(() { _all = apps; _loading = false; });
+  Future<void> _scan() async {
+    setState(() { _loading = true; _error = ''; });
+    try {
+      final apps = await PermissionsService.getInstalledApps();
+      if (mounted) {
+        setState(() {
+          _apps = apps;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
   }
 
-  bool _isChat(String pkg) => _chatPackages.any((c) => pkg.startsWith(c));
-  bool _isEmail(String pkg) => _emailPackages.any((e) => pkg.startsWith(e));
-
-  List<Map<String, String>> _filtered(int tab) {
-    List<Map<String, String>> list;
-    switch (tab) {
-      case 0: list = _all.where((a) => _isChat(a['packageName']!)).toList(); break;
-      case 1: list = _all.where((a) => _isEmail(a['packageName']!)).toList(); break;
-      default: list = _all.where((a) => !_isChat(a['packageName']!) && !_isEmail(a['packageName']!)).toList();
-    }
-    if (_search.isEmpty) return list;
+  List<Map<String, String>> get _filtered {
+    if (_search.isEmpty) return _apps;
     final q = _search.toLowerCase();
-    return list.where((a) =>
+    return _apps.where((a) =>
         (a['appName'] ?? '').toLowerCase().contains(q) ||
         (a['packageName'] ?? '').toLowerCase().contains(q)).toList();
   }
@@ -75,26 +62,22 @@ class _AppSelectorScreenState extends State<AppSelectorScreen>
     final settings = context.watch<SettingsProvider>();
     final selected = settings.enabledApps;
 
-    // Build selection summary label
-    String summaryText;
-    if (selected.isEmpty) {
-      summaryText = 'No apps selected';
-    } else {
-      final names = selected.map((pkg) {
-        final match = _all.firstWhere(
-            (a) => a['packageName'] == pkg,
-            orElse: () => {'appName': pkg.split('.').last});
-        return match['appName'] ?? pkg;
-      }).toList()..sort();
-      summaryText = names.join(', ');
-    }
+    // Build readable selection summary
+    final selectedNames = selected.map((pkg) {
+      final match = _apps.firstWhere(
+        (a) => a['packageName'] == pkg,
+        orElse: () => {'appName': pkg.split('.').last},
+      );
+      return match['appName'] ?? pkg;
+    }).toList()..sort();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Per-app settings'),
+        title: const Text('Select apps to monitor'),
         leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context)),
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           if (selected.isNotEmpty)
             TextButton(
@@ -102,127 +85,194 @@ class _AppSelectorScreenState extends State<AppSelectorScreen>
               child: const Text('Clear all',
                   style: TextStyle(color: Color(0xFF6B9E78))),
             ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _scan,
+            tooltip: 'Rescan apps',
+          ),
         ],
       ),
       body: Column(
         children: [
-          // ── Selection summary ─────────────────────────────────────────────
+
+          // ── Selection summary banner ─────────────────────────────────────
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             width: double.infinity,
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: selected.isEmpty
                   ? const Color(0xFF1E1E1E)
                   : const Color(0xFF2A3A2E),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected.isEmpty
+                    ? Colors.white10
+                    : const Color(0xFF4A7A56),
+                width: 1,
+              ),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  selected.isEmpty ? Icons.info_outline : Icons.check_circle,
-                  color: selected.isEmpty ? Colors.white30 : const Color(0xFF6B9E78),
+                  selected.isEmpty ? Icons.touch_app_outlined : Icons.check_circle,
+                  color: selected.isEmpty
+                      ? Colors.white30
+                      : const Color(0xFF6B9E78),
                   size: 18,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    selected.isEmpty
-                        ? 'Select apps to monitor below'
-                        : '${selected.length} selected: $summaryText',
-                    style: TextStyle(
-                      color: selected.isEmpty ? Colors.white38 : Colors.white70,
-                      fontSize: 13,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: selected.isEmpty
+                      ? const Text(
+                          'Tap an app below to start monitoring it',
+                          style: TextStyle(color: Colors.white38, fontSize: 13),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${selected.length} app${selected.length == 1 ? '' : 's'} selected',
+                              style: const TextStyle(
+                                color: Color(0xFF6B9E78),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              selectedNames.join(' · '),
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 12),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                 ),
               ],
             ),
           ),
 
-          // ── Search bar ────────────────────────────────────────────────────
+          // ── Search bar ───────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Search apps…',
-                prefixIcon: Icon(Icons.search, color: Colors.white38, size: 20),
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search ${_apps.length} installed apps…',
+                prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
+                suffixIcon: _search.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _search = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
               ),
               onChanged: (v) => setState(() => _search = v),
             ),
           ),
 
-          // ── Tab bar ───────────────────────────────────────────────────────
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2A2A2A),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: TabBar(
-              controller: _tabs,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white38,
-              dividerColor: Colors.transparent,
-              indicator: BoxDecoration(
-                color: const Color(0xFF4A7A56),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              tabs: const [
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center,
-                    children: [Icon(Icons.chat_bubble_outline, size: 15), SizedBox(width: 4), Text('Chats')])),
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center,
-                    children: [Icon(Icons.email_outlined, size: 15), SizedBox(width: 4), Text('Email')])),
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center,
-                    children: [Icon(Icons.apps, size: 15), SizedBox(width: 4), Text('All')])),
-              ],
-            ),
-          ),
-
-          // ── App list ──────────────────────────────────────────────────────
+          // ── App list ─────────────────────────────────────────────────────
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
-                : TabBarView(
-                    controller: _tabs,
-                    children: List.generate(3, (i) {
-                      final apps = _filtered(i);
-                      if (apps.isEmpty) {
-                        return Center(
-                          child: Text(
-                            _search.isNotEmpty ? 'No apps match "$_search"' : 'No apps in this category',
-                            style: const TextStyle(color: Colors.white38),
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Color(0xFF6B9E78)),
+                        SizedBox(height: 16),
+                        Text('Scanning installed apps…',
+                            style: TextStyle(color: Colors.white38)),
+                      ],
+                    ),
+                  )
+                : _error.isNotEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.error_outline,
+                                  color: Colors.white38, size: 48),
+                              const SizedBox(height: 12),
+                              const Text('Could not load apps',
+                                  style: TextStyle(
+                                      color: Colors.white70, fontSize: 16)),
+                              const SizedBox(height: 8),
+                              Text(_error,
+                                  style: const TextStyle(
+                                      color: Colors.white38, fontSize: 12),
+                                  textAlign: TextAlign.center),
+                              const SizedBox(height: 20),
+                              ElevatedButton.icon(
+                                onPressed: _scan,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Try again'),
+                              ),
+                            ],
                           ),
-                        );
-                      }
-                      return ListView.builder(
-                        itemCount: apps.length,
-                        itemBuilder: (ctx, idx) {
-                          final app = apps[idx];
-                          final pkg = app['packageName']!;
-                          final name = app['appName']!;
-                          final isSelected = selected.contains(pkg);
-                          return ListTile(
-                            leading: _AppAvatar(pkg),
-                            title: Text(name),
-                            subtitle: Text(pkg,
-                                style: const TextStyle(
-                                    color: Colors.white24, fontSize: 11),
-                                overflow: TextOverflow.ellipsis),
-                            trailing: Checkbox(
-                              value: isSelected,
-                              onChanged: (_) => settings.toggleApp(pkg),
+                        ),
+                      )
+                    : _filtered.isEmpty
+                        ? Center(
+                            child: Text(
+                              _search.isNotEmpty
+                                  ? 'No apps match "$_search"'
+                                  : 'No apps found',
+                              style: const TextStyle(color: Colors.white38),
                             ),
-                            onTap: () => settings.toggleApp(pkg),
-                          );
-                        },
-                      );
-                    }),
-                  ),
+                          )
+                        : ListView.builder(
+                            itemCount: _filtered.length,
+                            itemBuilder: (context, index) {
+                              final app = _filtered[index];
+                              final pkg = app['packageName'] ?? '';
+                              final name = app['appName'] ?? pkg;
+                              final isSelected = selected.contains(pkg);
+
+                              return InkWell(
+                                onTap: () => settings.toggleApp(pkg),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 6),
+                                  child: Row(
+                                    children: [
+                                      _AppAvatar(pkg, name),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(name,
+                                                style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w500)),
+                                            Text(pkg,
+                                                style: const TextStyle(
+                                                    color: Colors.white24,
+                                                    fontSize: 11),
+                                                overflow: TextOverflow.ellipsis),
+                                          ],
+                                        ),
+                                      ),
+                                      Checkbox(
+                                        value: isSelected,
+                                        onChanged: (_) => settings.toggleApp(pkg),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
           ),
         ],
       ),
@@ -232,27 +282,33 @@ class _AppSelectorScreenState extends State<AppSelectorScreen>
 
 class _AppAvatar extends StatelessWidget {
   final String packageName;
-  const _AppAvatar(this.packageName);
+  final String appName;
+  const _AppAvatar(this.packageName, this.appName);
 
   @override
   Widget build(BuildContext context) {
-    final letter = packageName.split('.').lastWhere(
-        (s) => s.isNotEmpty, orElse: () => 'A')[0].toUpperCase();
-    final color = _color(packageName);
-    return Container(
-      width: 40, height: 40,
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
-      child: Center(child: Text(letter,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
-    );
-  }
-
-  Color _color(String pkg) {
-    const c = [
+    final letter = appName.isNotEmpty ? appName[0].toUpperCase() : '?';
+    const colors = [
       Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFF9C27B0),
       Color(0xFFFF5722), Color(0xFF00BCD4), Color(0xFFFF9800),
       Color(0xFF607D8B), Color(0xFFE91E63), Color(0xFF795548),
+      Color(0xFF3F51B5), Color(0xFF009688), Color(0xFFCDDC39),
     ];
-    return c[pkg.hashCode.abs() % c.length];
+    final color = colors[packageName.hashCode.abs() % colors.length];
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Center(
+        child: Text(letter,
+            style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 17)),
+      ),
+    );
   }
 }

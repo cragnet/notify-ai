@@ -4,8 +4,11 @@ class ProviderConfig {
   final String defaultModel;
   final String defaultBaseUrl;
   final bool needsApiKey;
+  final bool apiKeyOptional; // key is optional (e.g. local servers)
   final bool needsBaseUrl;
-  final List<ModelOption> models;
+  final String modelHint;
+  final String urlHint;
+  final String keyHint;
 
   const ProviderConfig({
     required this.id,
@@ -13,16 +16,12 @@ class ProviderConfig {
     required this.defaultModel,
     required this.defaultBaseUrl,
     required this.needsApiKey,
+    this.apiKeyOptional = false,
     required this.needsBaseUrl,
-    required this.models,
+    required this.modelHint,
+    required this.urlHint,
+    required this.keyHint,
   });
-}
-
-class ModelOption {
-  final String id;
-  final String name;
-  final bool isCustom;
-  const ModelOption(this.id, this.name, {this.isCustom = false});
 }
 
 const kProviders = [
@@ -33,11 +32,9 @@ const kProviders = [
     defaultBaseUrl: 'https://api.anthropic.com',
     needsApiKey: true,
     needsBaseUrl: true,
-    models: [
-      ModelOption('claude-haiku-4-5-20251001', 'Claude Haiku — fastest, cheapest'),
-      ModelOption('claude-sonnet-4-6', 'Claude Sonnet — recommended'),
-      ModelOption('claude-opus-4-6', 'Claude Opus — most capable'),
-    ],
+    modelHint: 'e.g. claude-haiku-4-5-20251001',
+    urlHint: 'https://api.anthropic.com',
+    keyHint: 'sk-ant-...',
   ),
   ProviderConfig(
     id: 'openai',
@@ -46,27 +43,9 @@ const kProviders = [
     defaultBaseUrl: 'https://api.openai.com',
     needsApiKey: true,
     needsBaseUrl: true,
-    models: [
-      ModelOption('gpt-4o-mini', 'GPT-4o Mini — fastest, cheapest'),
-      ModelOption('gpt-4o', 'GPT-4o — recommended'),
-      ModelOption('gpt-4-turbo', 'GPT-4 Turbo'),
-    ],
-  ),
-  ProviderConfig(
-    id: 'ollama',
-    displayName: 'Ollama (local / Pi)',
-    defaultModel: 'llama3.2:3b',
-    defaultBaseUrl: 'http://10.0.1.33:11434',
-    needsApiKey: false,
-    needsBaseUrl: true,
-    models: [
-      ModelOption('llama3.2:3b', 'Llama 3.2 3B — recommended'),
-      ModelOption('llama3.2:1b', 'Llama 3.2 1B — fastest'),
-      ModelOption('qwen2.5:1.5b', 'Qwen 2.5 1.5B'),
-      ModelOption('qwen2.5:3b', 'Qwen 2.5 3B'),
-      ModelOption('mistral:7b', 'Mistral 7B'),
-      ModelOption('custom', 'Custom model name…', isCustom: true),
-    ],
+    modelHint: 'e.g. gpt-4o-mini',
+    urlHint: 'https://api.openai.com',
+    keyHint: 'sk-...',
   ),
   ProviderConfig(
     id: 'openrouter',
@@ -75,14 +54,9 @@ const kProviders = [
     defaultBaseUrl: 'https://openrouter.ai',
     needsApiKey: true,
     needsBaseUrl: false,
-    models: [
-      ModelOption('anthropic/claude-haiku-4-5', 'Claude Haiku (fast)'),
-      ModelOption('anthropic/claude-sonnet-4-6', 'Claude Sonnet'),
-      ModelOption('openai/gpt-4o-mini', 'GPT-4o Mini'),
-      ModelOption('openai/gpt-4o', 'GPT-4o'),
-      ModelOption('meta-llama/llama-3.2-3b-instruct:free', 'Llama 3.2 3B (free)'),
-      ModelOption('google/gemini-flash-1.5', 'Gemini Flash 1.5'),
-    ],
+    modelHint: 'e.g. anthropic/claude-haiku-4-5',
+    urlHint: 'https://openrouter.ai',
+    keyHint: 'sk-or-...',
   ),
   ProviderConfig(
     id: 'gemini',
@@ -91,11 +65,33 @@ const kProviders = [
     defaultBaseUrl: '',
     needsApiKey: true,
     needsBaseUrl: false,
-    models: [
-      ModelOption('gemini-2.0-flash', 'Gemini 2.0 Flash — recommended'),
-      ModelOption('gemini-1.5-flash', 'Gemini 1.5 Flash'),
-      ModelOption('gemini-1.5-pro', 'Gemini 1.5 Pro'),
-    ],
+    modelHint: 'e.g. gemini-2.0-flash',
+    urlHint: '',
+    keyHint: 'AIza...',
+  ),
+  ProviderConfig(
+    id: 'ollama',
+    displayName: 'Ollama',
+    defaultModel: 'llama3.2:3b',
+    defaultBaseUrl: 'https://your-ollama-cloud-url.com',
+    needsApiKey: false,
+    apiKeyOptional: true,
+    needsBaseUrl: true,
+    modelHint: 'e.g. llama3.2:3b',
+    urlHint: 'https://your-ollama-cloud-url.com',
+    keyHint: 'Optional — leave blank if not required',
+  ),
+  ProviderConfig(
+    id: 'local',
+    displayName: 'Local / Custom',
+    defaultModel: '',
+    defaultBaseUrl: 'http://192.168.1.x:11434',
+    needsApiKey: false,
+    apiKeyOptional: true,
+    needsBaseUrl: true,
+    modelHint: 'Enter model name exactly as it appears',
+    urlHint: 'http://192.168.1.x:port',
+    keyHint: 'Optional — leave blank if not required',
   ),
   ProviderConfig(
     id: 'gemini_nano',
@@ -104,9 +100,9 @@ const kProviders = [
     defaultBaseUrl: '',
     needsApiKey: false,
     needsBaseUrl: false,
-    models: [
-      ModelOption('gemini-nano', 'Gemini Nano — fully local, no key needed'),
-    ],
+    modelHint: 'gemini-nano',
+    urlHint: '',
+    keyHint: '',
   ),
 ];
 

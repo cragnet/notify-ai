@@ -14,24 +14,34 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   late String _selectedProvider;
   final _keyCtrl = TextEditingController();
   final _urlCtrl = TextEditingController();
-  final _customModelCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
   bool _obscure = true;
   bool _saved = false;
-  String? _selectedModel;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFromSettings());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  void _loadFromSettings() {
-    final settings = context.read<SettingsProvider>();
+  void _load() {
+    final s = context.read<SettingsProvider>();
     setState(() {
-      _selectedProvider = settings.aiProvider;
-      _keyCtrl.text = settings.getApiKey(_selectedProvider);
-      _urlCtrl.text = settings.getBaseUrl(_selectedProvider);
-      _selectedModel = settings.getModel(_selectedProvider);
+      _selectedProvider = s.aiProvider;
+      _keyCtrl.text = s.getApiKey(_selectedProvider);
+      _urlCtrl.text = s.getBaseUrl(_selectedProvider);
+      _modelCtrl.text = s.getModel(_selectedProvider);
+    });
+  }
+
+  void _switchProvider(String id) {
+    final s = context.read<SettingsProvider>();
+    setState(() {
+      _selectedProvider = id;
+      _keyCtrl.text = s.getApiKey(id);
+      _urlCtrl.text = s.getBaseUrl(id);
+      _modelCtrl.text = s.getModel(id);
+      _saved = false;
     });
   }
 
@@ -39,40 +49,44 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   void dispose() {
     _keyCtrl.dispose();
     _urlCtrl.dispose();
-    _customModelCtrl.dispose();
+    _modelCtrl.dispose();
     super.dispose();
   }
 
-  ProviderConfig? get _config => providerById(_selectedProvider);
+  ProviderConfig? get _cfg => providerById(_selectedProvider);
 
   Future<void> _save() async {
-    final settings = context.read<SettingsProvider>();
-    await settings.setAiProvider(_selectedProvider);
-    if (_config?.needsApiKey == true && _keyCtrl.text.isNotEmpty) {
-      await settings.setApiKey(_selectedProvider, _keyCtrl.text.trim());
+    final s = context.read<SettingsProvider>();
+    final cfg = _cfg;
+    if (cfg == null) return;
+
+    await s.setAiProvider(_selectedProvider);
+    await s.setApiKey(_selectedProvider, _keyCtrl.text.trim());
+    if (cfg.needsBaseUrl) {
+      await s.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
     }
-    if (_config?.needsBaseUrl == true && _urlCtrl.text.isNotEmpty) {
-      await settings.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
+    final model = _modelCtrl.text.trim();
+    if (model.isNotEmpty) {
+      await s.setModel(_selectedProvider, model);
     }
-    if (_selectedModel != null) {
-      await settings.setModel(_selectedProvider, _selectedModel!);
-    }
+
     setState(() => _saved = true);
-    Future.delayed(const Duration(seconds: 2), () {
+    Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _saved = false);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final config = _config;
+    final cfg = _cfg;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('AI Provider'),
         leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context)),
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -85,12 +99,14 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Provider selector ───────────────────────────────────────
+
+                // ── Provider selector ──────────────────────────────────────
                 _Label('Provider'),
                 _Card(
                   child: Column(
-                    children: kProviders.map((p) {
-                      final selected = _selectedProvider == p.id;
+                    children: kProviders.asMap().entries.map((entry) {
+                      final p = entry.value;
+                      final isLast = entry.key == kProviders.length - 1;
                       return Column(
                         children: [
                           RadioListTile<String>(
@@ -98,25 +114,10 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                             groupValue: _selectedProvider,
                             activeColor: const Color(0xFF6B9E78),
                             title: Text(p.displayName),
-                            subtitle: p.id == 'gemini_nano'
-                                ? const Text('Requires Pixel 8+ or supported device',
-                                    style: TextStyle(color: Colors.white38, fontSize: 12))
-                                : null,
-                            onChanged: (v) {
-                              if (v != null) {
-                                final s = context.read<SettingsProvider>();
-                                setState(() {
-                                  _selectedProvider = v;
-                                  _keyCtrl.text = s.getApiKey(v);
-                                  _urlCtrl.text = s.getBaseUrl(v);
-                                  _selectedModel = s.getModel(v);
-                                  _saved = false;
-                                });
-                              }
-                            },
+                            subtitle: _providerSubtitle(p),
+                            onChanged: (v) { if (v != null) _switchProvider(v); },
                           ),
-                          if (kProviders.last.id != p.id)
-                            const Divider(color: Colors.white10, height: 1),
+                          if (!isLast) const Divider(color: Colors.white10, height: 1),
                         ],
                       );
                     }).toList(),
@@ -125,7 +126,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
                 const SizedBox(height: 16),
 
-                // ── Configuration fields ────────────────────────────────────
+                // ── Configuration ──────────────────────────────────────────
                 _Label('Configuration'),
                 _Card(
                   child: Padding(
@@ -135,123 +136,81 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                       children: [
 
                         // API Key
-                        if (config?.needsApiKey == true) ...[
-                          const Text('API Key',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white70,
-                                  fontSize: 13)),
-                          const SizedBox(height: 6),
+                        _FieldLabel('API Key${cfg?.apiKeyOptional == true ? ' (optional)' : ''}'),
+                        const SizedBox(height: 6),
+                        if (cfg?.needsApiKey == false && cfg?.apiKeyOptional == false) ...[
+                          _InfoBox(
+                            icon: Icons.lock_open,
+                            text: cfg?.id == 'gemini_nano'
+                                ? 'No API key needed — runs entirely on your device'
+                                : 'No API key required for this provider',
+                          ),
+                        ] else ...[
                           TextFormField(
                             controller: _keyCtrl,
                             obscureText: _obscure,
                             decoration: InputDecoration(
-                              hintText: 'Paste your API key here',
+                              hintText: cfg?.keyHint ?? 'Enter API key',
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                    _obscure ? Icons.visibility_off : Icons.visibility,
-                                    color: Colors.white38, size: 20),
+                                  _obscure ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.white38, size: 20,
+                                ),
                                 onPressed: () => setState(() => _obscure = !_obscure),
                               ),
                             ),
                             onChanged: (_) => setState(() => _saved = false),
                           ),
                           const SizedBox(height: 4),
-                          const Text('Stored encrypted on device only',
-                              style: TextStyle(color: Colors.white30, fontSize: 11)),
-                          const SizedBox(height: 16),
+                          const Text(
+                            'Stored encrypted on device — never shared',
+                            style: TextStyle(color: Colors.white30, fontSize: 11),
+                          ),
                         ],
 
-                        if (config?.needsApiKey == false && config?.id != 'openrouter') ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A3A2E),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.lock_open,
-                                    color: Color(0xFF6B9E78), size: 18),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    config?.id == 'gemini_nano'
-                                        ? 'No API key needed — runs entirely on your device'
-                                        : 'No API key needed — connects to your local Ollama',
-                                    style: const TextStyle(
-                                        color: Colors.white70, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
+                        const SizedBox(height: 16),
 
                         // Base URL
-                        if (config?.needsBaseUrl == true) ...[
-                          const Text('Base URL (Optional)',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white70,
-                                  fontSize: 13)),
+                        if (cfg?.needsBaseUrl == true) ...[
+                          _FieldLabel('Base URL${cfg?.id == 'openai' || cfg?.id == 'claude' ? ' (optional)' : ''}'),
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _urlCtrl,
                             keyboardType: TextInputType.url,
                             decoration: InputDecoration(
-                              hintText: config?.defaultBaseUrl ?? '',
+                              hintText: cfg?.urlHint ?? 'https://',
                             ),
                             onChanged: (_) => setState(() => _saved = false),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            config?.id == 'ollama'
-                                ? 'Your Pi\'s Tailscale/local IP — default: ${config?.defaultBaseUrl}'
-                                : 'Leave blank to use the default endpoint',
+                            cfg?.id == 'local'
+                                ? 'IP address and port of your local server — e.g. http://192.168.1.50:11434'
+                                : cfg?.id == 'ollama'
+                                    ? 'Full URL of your Ollama instance'
+                                    : 'Leave blank to use the default endpoint',
                             style: const TextStyle(color: Colors.white30, fontSize: 11),
                           ),
                           const SizedBox(height: 16),
                         ],
 
-                        // Model
-                        const Text('Model',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white70,
-                                fontSize: 13)),
+                        // Model (always free-text)
+                        _FieldLabel('Model'),
                         const SizedBox(height: 6),
-                        if (config != null)
-                          ...config.models.map((m) {
-                            if (m.isCustom) {
-                              return _CustomModelTile(
-                                selected: _selectedModel != null &&
-                                    !config.models.any(
-                                        (x) => !x.isCustom && x.id == _selectedModel),
-                                currentValue: _selectedModel ?? '',
-                                onSelected: (v) => setState(() {
-                                  _selectedModel = v;
-                                  _saved = false;
-                                }),
-                              );
-                            }
-                            return RadioListTile<String>(
-                              dense: true,
-                              value: m.id,
-                              groupValue: _selectedModel,
-                              activeColor: const Color(0xFF6B9E78),
-                              title: Text(m.name,
-                                  style: const TextStyle(fontSize: 14)),
-                              contentPadding: EdgeInsets.zero,
-                              onChanged: (v) {
-                                if (v != null) setState(() {
-                                  _selectedModel = v;
-                                  _saved = false;
-                                });
-                              },
-                            );
-                          }),
+                        TextFormField(
+                          controller: _modelCtrl,
+                          decoration: InputDecoration(
+                            hintText: cfg?.modelHint ?? 'Enter model name',
+                          ),
+                          onChanged: (_) => setState(() => _saved = false),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          cfg?.id == 'local' || cfg?.id == 'ollama'
+                              ? 'Enter the model name exactly as it appears in your server'
+                              : 'Enter the exact model identifier for this provider',
+                          style: const TextStyle(color: Colors.white30, fontSize: 11),
+                        ),
                       ],
                     ),
                   ),
@@ -259,11 +218,11 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
                 const SizedBox(height: 20),
 
-                // ── Save button ─────────────────────────────────────────────
+                // ── Save button ────────────────────────────────────────────
                 SizedBox(
                   width: double.infinity,
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
+                    duration: const Duration(milliseconds: 250),
                     child: _saved
                         ? Container(
                             key: const ValueKey('saved'),
@@ -281,7 +240,8 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                                 Text('Configuration saved',
                                     style: TextStyle(
                                         color: Color(0xFF6B9E78),
-                                        fontWeight: FontWeight.w600)),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16)),
                               ],
                             ),
                           )
@@ -303,63 +263,50 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
       ),
     );
   }
+
+  Widget? _providerSubtitle(ProviderConfig p) {
+    String? text;
+    if (p.id == 'gemini_nano') text = 'Requires Pixel 8+ or compatible device';
+    if (p.id == 'local') text = 'Any OpenAI-compatible local server';
+    if (p.id == 'ollama') text = 'Cloud-hosted Ollama instance';
+    if (text == null) return null;
+    return Text(text, style: const TextStyle(color: Colors.white38, fontSize: 12));
+  }
 }
 
-class _CustomModelTile extends StatefulWidget {
-  final bool selected;
-  final String currentValue;
-  final void Function(String) onSelected;
-  const _CustomModelTile(
-      {required this.selected, required this.currentValue, required this.onSelected});
-
+class _FieldLabel extends StatelessWidget {
+  final String text;
+  const _FieldLabel(this.text);
   @override
-  State<_CustomModelTile> createState() => _CustomModelTileState();
+  Widget build(BuildContext context) => Text(
+        text,
+        style: const TextStyle(
+            fontWeight: FontWeight.w500, color: Colors.white70, fontSize: 13),
+      );
 }
 
-class _CustomModelTileState extends State<_CustomModelTile> {
-  final _ctrl = TextEditingController();
-  bool _editing = false;
-
+class _InfoBox extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _InfoBox({required this.icon, required this.text});
   @override
-  void initState() {
-    super.initState();
-    if (widget.selected) _ctrl.text = widget.currentValue;
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        RadioListTile<bool>(
-          dense: true,
-          value: true,
-          groupValue: widget.selected,
-          activeColor: const Color(0xFF6B9E78),
-          title: const Text('Custom model name…', style: TextStyle(fontSize: 14)),
-          contentPadding: EdgeInsets.zero,
-          onChanged: (_) => setState(() => _editing = true),
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A3A2E),
+          borderRadius: BorderRadius.circular(10),
         ),
-        if (_editing || widget.selected) ...[
-          TextFormField(
-            controller: _ctrl,
-            autofocus: _editing,
-            decoration: const InputDecoration(hintText: 'e.g. phi3:mini'),
-            onFieldSubmitted: (v) {
-              if (v.isNotEmpty) widget.onSelected(v);
-              setState(() => _editing = false);
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-      ],
-    );
-  }
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF6B9E78), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            ),
+          ],
+        ),
+      );
 }
 
 class _Label extends StatelessWidget {
@@ -370,8 +317,10 @@ class _Label extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
         child: Text(text,
             style: const TextStyle(
-                color: Color(0xFF6B9E78), fontSize: 13,
-                fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                color: Color(0xFF6B9E78),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5)),
       );
 }
 
