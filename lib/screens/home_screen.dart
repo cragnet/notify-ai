@@ -137,9 +137,10 @@ class HomeScreen extends StatelessWidget {
               ),
               const Divider(color: Colors.white10, height: 1),
               SwitchListTile(
-                secondary: const Icon(Icons.replay, color: Colors.white54),
-                title: const Text('Dismiss on app usage'),
-                subtitle: const Text('Clear summary when you open the app',
+                secondary: const Icon(Icons.clear_all, color: Colors.white54),
+                title: const Text('Dismiss original notifications'),
+                subtitle: const Text(
+                    'Clear intercepted notifications and carry their actions (Reply, Mark as read) onto the summary',
                     style: TextStyle(color: Colors.white38, fontSize: 13)),
                 value: settings.dismissOnAppUsage,
                 onChanged: settings.setDismissOnAppUsage,
