@@ -96,13 +96,60 @@ class MainActivity : FlutterActivity() {
 
     private fun getInstalledApps(): List<Map<String, String>> {
         val pm = packageManager
-        return pm.getInstalledApplications(0)
-            .map { app ->
-                mapOf(
-                    "packageName" to app.packageName,
-                    "appName" to pm.getApplicationLabel(app).toString()
-                )
+        val appMap = mutableMapOf<String, String>() // packageName -> appName
+
+        // Source 1: getInstalledPackages — primary source
+        try {
+            pm.getInstalledPackages(0).forEach { pkg ->
+                try {
+                    val appInfo = pkg.applicationInfo ?: return@forEach
+                    val label = pm.getApplicationLabel(appInfo).toString()
+                    appMap[pkg.packageName] = label
+                } catch (_: Exception) {}
             }
+        } catch (_: Exception) {}
+
+        // Source 2: getInstalledApplications — catches anything missed above
+        try {
+            pm.getInstalledApplications(0).forEach { app ->
+                if (!appMap.containsKey(app.packageName)) {
+                    try {
+                        appMap[app.packageName] = pm.getApplicationLabel(app).toString()
+                    } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Source 3: UsageStatsManager — backup for any app that has been used
+        // but wasn't visible to the package manager queries above
+        try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+            val now = System.currentTimeMillis()
+            // Look back 6 months to catch everything that's been used
+            val sixMonthsAgo = now - (180L * 24 * 60 * 60 * 1000)
+            val usageStats = usm.queryUsageStats(
+                android.app.usage.UsageStatsManager.INTERVAL_BEST,
+                sixMonthsAgo,
+                now
+            )
+            usageStats?.forEach { stat ->
+                val pkg = stat.packageName
+                if (!appMap.containsKey(pkg)) {
+                    try {
+                        val appInfo = pm.getApplicationInfo(pkg, 0)
+                        val label = pm.getApplicationLabel(appInfo).toString()
+                        appMap[pkg] = label
+                    } catch (_: Exception) {
+                        // Can't get label — use package name as fallback label
+                        appMap[pkg] = pkg.split(".").last()
+                            .replaceFirstChar { it.uppercase() }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return appMap.entries
+            .map { mapOf("packageName" to it.key, "appName" to it.value) }
             .sortedBy { it["appName"]?.lowercase() }
     }
 
