@@ -96,11 +96,14 @@ class MainActivity : FlutterActivity() {
 
     private fun getInstalledApps(): List<Map<String, String>> {
         val pm = packageManager
-        val apps = pm.getInstalledApplications(0)
-        return apps
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-            .map { mapOf("packageName" to it.packageName, "appName" to pm.getApplicationLabel(it).toString()) }
-            .sortedBy { it["appName"] }
+        return pm.getInstalledApplications(0)
+            .map { app ->
+                mapOf(
+                    "packageName" to app.packageName,
+                    "appName" to pm.getApplicationLabel(app).toString()
+                )
+            }
+            .sortedBy { it["appName"]?.lowercase() }
     }
 
     private fun isGeminiNanoAvailable(): Boolean {
