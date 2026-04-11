@@ -75,17 +75,85 @@ class NotificationService : NotificationListenerService() {
         sp().edit().putString("flutter.$key", value).apply()
     }
 
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        log("success", "=== Notification listener CONNECTED and running ===")
+
+        // Post a visible test notification so we know the service is alive
+        postDebugNotification("Notify AI is running", "Notification listener connected successfully")
+
+        // Log everything we can read from prefs
+        val serviceEnabled = spBool("service_enabled", true)
+        val threshold = spInt("notification_threshold", 2)
+        val provider = spStr("ai_provider", "claude")
+        val model = spStr("model_$provider", "")
+        val selected = spList("enabled_apps_set")
+
+        log("info", "service_enabled=$serviceEnabled, threshold=$threshold, provider=$provider, model=$model")
+
+        if (selected.isEmpty()) {
+            log("warn", "No apps selected — go to Per-app settings and select apps to monitor")
+            postDebugNotification("Notify AI — Action needed", "No apps selected. Open app and go to Per-app settings.")
+        } else {
+            log("success", "Monitoring ${selected.size} app(s): ${selected.take(5).joinToString(", ") { it.split(".").last() }}${if (selected.size > 5) "..." else ""}")
+        }
+    }
+
+    private fun postDebugNotification(title: String, text: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "notify_ai_status"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ch = NotificationChannel(channelId, "Notify AI Status", NotificationManager.IMPORTANCE_HIGH)
+                nm.createNotificationChannel(ch)
+            }
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                Notification.Builder(this, channelId)
+            else @Suppress("DEPRECATION") Notification.Builder(this)
+            builder.setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+            nm.notify("debug".hashCode(), builder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "Debug notification failed: ${e.message}")
+        }
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        log("warn", "Listener disconnected — system may have killed it. Re-requesting bind.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(android.content.ComponentName(this, NotificationService::class.java))
+        }
+    }
+
     // ── Main entry point ───────────────────────────────────────────────────────
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (!spBool("service_enabled", true)) return
-
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
+        // Log every notification received (except our own) so we can see what's arriving
+        log("info", "Raw notification from: $pkg")
+
+        if (!spBool("service_enabled", true)) {
+            log("info", "Service disabled — skipping")
+            return
+        }
+
         // Check selected apps
         val selected = spList("enabled_apps_set")
-        if (selected.isNotEmpty() && !selected.contains(pkg)) return
+        if (selected.isEmpty()) {
+            log("warn", "No apps selected yet — notification from $pkg ignored. Select apps in settings.")
+            return
+        }
+        if (!selected.contains(pkg)) {
+            // Don't log every non-selected notification — too noisy
+            return
+        }
 
         val extras = sbn.notification.extras
         val title = extras.getString(Notification.EXTRA_TITLE) ?: return

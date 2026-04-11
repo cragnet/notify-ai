@@ -10,10 +10,7 @@
         tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:label="Notify AI"
@@ -22,7 +19,6 @@
         android:enableOnBackInvokedCallback="true"
         android:resizeableActivity="true">
 
-        <!-- Large screen / foldable support -->
         <property
             android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
             android:value="true" />
@@ -45,18 +41,15 @@
             </intent-filter>
         </activity>
 
+        <!-- NotificationListenerService - NO foregroundServiceType, NO filter_types restriction -->
         <service
             android:name=".NotificationService"
             android:label="Notify AI"
             android:exported="true"
-            android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-            <meta-data
-                android:name="android.service.notification.default_filter_types"
-                android:value="conversations" />
         </service>
 
         <receiver
