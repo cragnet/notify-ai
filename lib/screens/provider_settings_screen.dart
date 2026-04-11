@@ -62,9 +62,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
     await s.setAiProvider(_selectedProvider);
     await s.setApiKey(_selectedProvider, _keyCtrl.text.trim());
-    if (cfg.needsBaseUrl) {
-      await s.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
-    }
+    await s.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
     final model = _modelCtrl.text.trim();
     if (model.isNotEmpty) {
       await s.setModel(_selectedProvider, model);
@@ -114,7 +112,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                             groupValue: _selectedProvider,
                             activeColor: const Color(0xFF6B9E78),
                             title: Text(p.displayName),
-                            subtitle: _providerSubtitle(p),
+                            subtitle: _subtitle(p),
                             onChanged: (v) { if (v != null) _switchProvider(v); },
                           ),
                           if (!isLast) const Divider(color: Colors.white10, height: 1),
@@ -125,8 +123,6 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                 ),
 
                 const SizedBox(height: 16),
-
-                // ── Configuration ──────────────────────────────────────────
                 _Label('Configuration'),
                 _Card(
                   child: Padding(
@@ -136,16 +132,9 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                       children: [
 
                         // API Key
-                        _FieldLabel('API Key${cfg?.apiKeyOptional == true ? ' (optional)' : ''}'),
-                        const SizedBox(height: 6),
-                        if (cfg?.needsApiKey == false && cfg?.apiKeyOptional == false) ...[
-                          _InfoBox(
-                            icon: Icons.lock_open,
-                            text: cfg?.id == 'gemini_nano'
-                                ? 'No API key needed — runs entirely on your device'
-                                : 'No API key required for this provider',
-                          ),
-                        ] else ...[
+                        if (cfg?.needsApiKey == true || cfg?.apiKeyOptional == true) ...[
+                          _FieldLabel('API Key${cfg?.apiKeyOptional == true ? ' (optional)' : ''}'),
+                          const SizedBox(height: 6),
                           TextFormField(
                             controller: _keyCtrl,
                             obscureText: _obscure,
@@ -162,17 +151,20 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                             onChanged: (_) => setState(() => _saved = false),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Stored encrypted on device — never shared',
-                            style: TextStyle(color: Colors.white30, fontSize: 11),
+                          const Text('Stored encrypted on device — never shared',
+                              style: TextStyle(color: Colors.white30, fontSize: 11)),
+                          const SizedBox(height: 16),
+                        ] else if (cfg?.id == 'gemini_nano') ...[
+                          _InfoBox(
+                            icon: Icons.lock_open,
+                            text: 'No API key needed — runs entirely on your device',
                           ),
+                          const SizedBox(height: 16),
                         ],
-
-                        const SizedBox(height: 16),
 
                         // Base URL
                         if (cfg?.needsBaseUrl == true) ...[
-                          _FieldLabel('Base URL${cfg?.id == 'openai' || cfg?.id == 'claude' ? ' (optional)' : ''}'),
+                          _FieldLabel('Base URL (optional)'),
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _urlCtrl,
@@ -185,16 +177,16 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                           const SizedBox(height: 4),
                           Text(
                             cfg?.id == 'local'
-                                ? 'IP address and port of your local server — e.g. http://192.168.1.50:11434'
+                                ? 'IP and port of your local server — e.g. http://192.168.1.50:11434'
                                 : cfg?.id == 'ollama'
-                                    ? 'Full URL of your Ollama instance'
+                                    ? 'Full URL of your Ollama instance — leave blank if not yet set up'
                                     : 'Leave blank to use the default endpoint',
                             style: const TextStyle(color: Colors.white30, fontSize: 11),
                           ),
                           const SizedBox(height: 16),
                         ],
 
-                        // Model (always free-text)
+                        // Model — always free text, no dropdown
                         _FieldLabel('Model'),
                         const SizedBox(height: 6),
                         TextFormField(
@@ -205,11 +197,9 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                           onChanged: (_) => setState(() => _saved = false),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          cfg?.id == 'local' || cfg?.id == 'ollama'
-                              ? 'Enter the model name exactly as it appears in your server'
-                              : 'Enter the exact model identifier for this provider',
-                          style: const TextStyle(color: Colors.white30, fontSize: 11),
+                        const Text(
+                          'Type the exact model identifier',
+                          style: TextStyle(color: Colors.white30, fontSize: 11),
                         ),
                       ],
                     ),
@@ -218,7 +208,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
                 const SizedBox(height: 20),
 
-                // ── Save button ────────────────────────────────────────────
+                // Save button
                 SizedBox(
                   width: double.infinity,
                   child: AnimatedSwitcher(
@@ -264,11 +254,11 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     );
   }
 
-  Widget? _providerSubtitle(ProviderConfig p) {
+  Widget? _subtitle(ProviderConfig p) {
     String? text;
     if (p.id == 'gemini_nano') text = 'Requires Pixel 8+ or compatible device';
     if (p.id == 'local') text = 'Any OpenAI-compatible local server';
-    if (p.id == 'ollama') text = 'Cloud-hosted Ollama instance';
+    if (p.id == 'ollama') text = 'Cloud-hosted or self-hosted Ollama instance';
     if (text == null) return null;
     return Text(text, style: const TextStyle(color: Colors.white38, fontSize: 12));
   }
@@ -278,11 +268,9 @@ class _FieldLabel extends StatelessWidget {
   final String text;
   const _FieldLabel(this.text);
   @override
-  Widget build(BuildContext context) => Text(
-        text,
-        style: const TextStyle(
-            fontWeight: FontWeight.w500, color: Colors.white70, fontSize: 13),
-      );
+  Widget build(BuildContext context) => Text(text,
+      style: const TextStyle(
+          fontWeight: FontWeight.w500, color: Colors.white70, fontSize: 13));
 }
 
 class _InfoBox extends StatelessWidget {
@@ -300,10 +288,8 @@ class _InfoBox extends StatelessWidget {
           children: [
             Icon(icon, color: const Color(0xFF6B9E78), size: 18),
             const SizedBox(width: 8),
-            Expanded(
-              child: Text(text,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            ),
+            Expanded(child: Text(text,
+                style: const TextStyle(color: Colors.white70, fontSize: 13))),
           ],
         ),
       );
@@ -317,10 +303,8 @@ class _Label extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
         child: Text(text,
             style: const TextStyle(
-                color: Color(0xFF6B9E78),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5)),
+                color: Color(0xFF6B9E78), fontSize: 13,
+                fontWeight: FontWeight.w600, letterSpacing: 0.5)),
       );
 }
 

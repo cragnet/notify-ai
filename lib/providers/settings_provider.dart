@@ -88,16 +88,8 @@ class SettingsProvider extends ChangeNotifier {
     if (providerModels.containsKey(provider) && providerModels[provider]!.isNotEmpty) {
       return providerModels[provider]!;
     }
-    const defaults = {
-      'claude': 'claude-haiku-4-5-20251001',
-      'openai': 'gpt-4o-mini',
-      'ollama': 'llama3.2:3b',
-      'openrouter': 'anthropic/claude-haiku-4-5',
-      'gemini': 'gemini-2.0-flash',
-      'gemini_nano': 'gemini-nano',
-      'local': '',
-    };
-    return defaults[provider] ?? '';
+    // No hardcoded defaults — user must enter model name
+    return '';
   }
 
   Future<void> setBaseUrl(String provider, String url) async {
@@ -110,14 +102,13 @@ class SettingsProvider extends ChangeNotifier {
     if (providerBaseUrls.containsKey(provider) && providerBaseUrls[provider]!.isNotEmpty) {
       return providerBaseUrls[provider]!;
     }
-    const defaults = {
-      'claude': 'https://api.anthropic.com',
-      'openai': 'https://api.openai.com',
-      'ollama': '',
-      'openrouter': 'https://openrouter.ai',
-      'local': '',
-    };
-    return defaults[provider] ?? '';
+    // Only Claude and OpenAI have sensible defaults — everything else blank
+    switch (provider) {
+      case 'claude': return 'https://api.anthropic.com';
+      case 'openai': return 'https://api.openai.com';
+      case 'openrouter': return 'https://openrouter.ai';
+      default: return '';
+    }
   }
 
   Future<void> setSummaryLength(int v) async {

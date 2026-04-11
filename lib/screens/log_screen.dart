@@ -5,31 +5,19 @@ import 'dart:convert';
 
 class LogEntry {
   final String timestamp;
-  final String level; // info, success, warn, error
+  final String level;
   final String message;
-
-  const LogEntry({
-    required this.timestamp,
-    required this.level,
-    required this.message,
-  });
-
+  const LogEntry({required this.timestamp, required this.level, required this.message});
   factory LogEntry.fromJson(Map<String, dynamic> j) => LogEntry(
-        timestamp: j['timestamp'] as String,
-        level: j['level'] as String? ?? 'info',
-        message: j['message'] as String,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'timestamp': timestamp,
-        'level': level,
-        'message': message,
-      };
+      timestamp: j['timestamp'] as String? ?? '',
+      level: j['level'] as String? ?? 'info',
+      message: j['message'] as String? ?? '');
+  Map<String, dynamic> toJson() =>
+      {'timestamp': timestamp, 'level': level, 'message': message};
 }
 
 class LogScreen extends StatefulWidget {
   const LogScreen({super.key});
-
   @override
   State<LogScreen> createState() => _LogScreenState();
 }
@@ -37,8 +25,7 @@ class LogScreen extends StatefulWidget {
 class _LogScreenState extends State<LogScreen> {
   List<LogEntry> _entries = [];
   bool _loading = true;
-  final _scrollCtrl = ScrollController();
-  String _filter = 'all'; // all, info, success, warn, error
+  String _filter = 'all';
 
   @override
   void initState() {
@@ -46,14 +33,14 @@ class _LogScreenState extends State<LogScreen> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _scrollCtrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
+    setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
+    // The native service writes WITHOUT flutter. prefix directly to FlutterSharedPreferences
+    // Flutter prefs plugin adds flutter. prefix, so we read 'service_log' which
+    // maps to 'flutter.service_log' in the XML file — matching what the service writes
+    // BUT the service writes key 'service_log' (no prefix) so we need to read it raw
+    // We use the raw key the service uses: 'service_log'
     final raw = prefs.getString('service_log') ?? '[]';
     try {
       final list = (jsonDecode(raw) as List)
@@ -88,10 +75,8 @@ class _LogScreenState extends State<LogScreen> {
     }
   }
 
-  List<LogEntry> get _filtered {
-    if (_filter == 'all') return _entries;
-    return _entries.where((e) => e.level == _filter).toList();
-  }
+  List<LogEntry> get _filtered =>
+      _filter == 'all' ? _entries : _entries.where((e) => e.level == _filter).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -101,39 +86,35 @@ class _LogScreenState extends State<LogScreen> {
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.white54),
-            onPressed: _clear,
-          ),
+              icon: const Icon(Icons.delete_outline, color: Colors.white54),
+              onPressed: _clear),
         ],
       ),
       body: Column(
         children: [
-          // Filter chips
           SizedBox(
             height: 48,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               children: [
-                _FilterChip(label: 'All', value: 'all', current: _filter,
+                _Chip(label: 'All', value: 'all', current: _filter,
                     onTap: (v) => setState(() => _filter = v)),
                 const SizedBox(width: 8),
-                _FilterChip(label: 'Info', value: 'info', current: _filter,
+                _Chip(label: 'Info', value: 'info', current: _filter,
                     color: Colors.white54, onTap: (v) => setState(() => _filter = v)),
                 const SizedBox(width: 8),
-                _FilterChip(label: 'Success', value: 'success', current: _filter,
+                _Chip(label: 'Success', value: 'success', current: _filter,
                     color: const Color(0xFF6B9E78), onTap: (v) => setState(() => _filter = v)),
                 const SizedBox(width: 8),
-                _FilterChip(label: 'Warning', value: 'warn', current: _filter,
+                _Chip(label: 'Warning', value: 'warn', current: _filter,
                     color: const Color(0xFFE8A838), onTap: (v) => setState(() => _filter = v)),
                 const SizedBox(width: 8),
-                _FilterChip(label: 'Error', value: 'error', current: _filter,
+                _Chip(label: 'Error', value: 'error', current: _filter,
                     color: Colors.redAccent, onTap: (v) => setState(() => _filter = v)),
               ],
             ),
           ),
-
-          // Count
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Row(
@@ -146,9 +127,9 @@ class _LogScreenState extends State<LogScreen> {
                     final text = _filtered.map((e) =>
                         '[${e.timestamp}] [${e.level.toUpperCase()}] ${e.message}').join('\n');
                     Clipboard.setData(ClipboardData(text: text));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Log copied to clipboard'),
-                          backgroundColor: Color(0xFF4A7A56)));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Log copied to clipboard'),
+                        backgroundColor: Color(0xFF4A7A56)));
                   },
                   child: const Text('Copy all',
                       style: TextStyle(color: Color(0xFF6B9E78), fontSize: 12)),
@@ -156,7 +137,6 @@ class _LogScreenState extends State<LogScreen> {
               ],
             ),
           ),
-
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
@@ -171,7 +151,8 @@ class _LogScreenState extends State<LogScreen> {
                             const Text('No log entries yet',
                                 style: TextStyle(color: Colors.white38, fontSize: 16)),
                             const SizedBox(height: 4),
-                            const Text('Activity will appear here once the service starts intercepting notifications',
+                            const Text(
+                                'Activity appears here once the service intercepts notifications.\nMake sure apps are selected and notification access is granted.',
                                 style: TextStyle(color: Colors.white24, fontSize: 12),
                                 textAlign: TextAlign.center),
                             const SizedBox(height: 20),
@@ -184,13 +165,9 @@ class _LogScreenState extends State<LogScreen> {
                         ),
                       )
                     : ListView.builder(
-                        controller: _scrollCtrl,
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         itemCount: _filtered.length,
-                        itemBuilder: (ctx, i) {
-                          final entry = _filtered[i];
-                          return _LogRow(entry: entry);
-                        },
+                        itemBuilder: (ctx, i) => _LogRow(entry: _filtered[i]),
                       ),
           ),
         ],
@@ -222,43 +199,35 @@ class _LogRow extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(_icon, color: _color, size: 15),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(entry.message,
-                    style: TextStyle(color: _color, fontSize: 13, height: 1.3)),
-                Text(entry.timestamp,
-                    style: const TextStyle(color: Colors.white24, fontSize: 10)),
-              ],
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(_icon, color: _color, size: 15),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(entry.message,
+                      style: TextStyle(color: _color, fontSize: 13, height: 1.3)),
+                  Text(entry.timestamp,
+                      style: const TextStyle(color: Colors.white24, fontSize: 10)),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
-class _FilterChip extends StatelessWidget {
+class _Chip extends StatelessWidget {
   final String label, value, current;
   final Color color;
   final void Function(String) onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.value,
-    required this.current,
-    this.color = Colors.white70,
-    required this.onTap,
-  });
+  const _Chip({required this.label, required this.value, required this.current,
+      this.color = Colors.white70, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

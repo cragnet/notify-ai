@@ -8,40 +8,26 @@ class HistoryEntry {
   final String appName;
   final String title;
   final String message;
-  final String timestamp; // ISO8601
+  final String timestamp;
   final bool hadImage;
 
   const HistoryEntry({
-    required this.packageName,
-    required this.appName,
-    required this.title,
-    required this.message,
-    required this.timestamp,
-    this.hadImage = false,
+    required this.packageName, required this.appName,
+    required this.title, required this.message,
+    required this.timestamp, this.hadImage = false,
   });
 
   factory HistoryEntry.fromJson(Map<String, dynamic> j) => HistoryEntry(
-        packageName: j['packageName'] as String? ?? '',
-        appName: j['appName'] as String? ?? '',
-        title: j['title'] as String? ?? '',
-        message: j['message'] as String? ?? '',
-        timestamp: j['timestamp'] as String? ?? '',
-        hadImage: j['hadImage'] as bool? ?? false,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'packageName': packageName,
-        'appName': appName,
-        'title': title,
-        'message': message,
-        'timestamp': timestamp,
-        'hadImage': hadImage,
-      };
+      packageName: j['packageName'] as String? ?? '',
+      appName: j['appName'] as String? ?? '',
+      title: j['title'] as String? ?? '',
+      message: j['message'] as String? ?? '',
+      timestamp: j['timestamp'] as String? ?? '',
+      hadImage: j['hadImage'] as bool? ?? false);
 }
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
-
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
@@ -53,26 +39,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final _searchCtrl = TextEditingController();
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  void initState() { super.initState(); _load(); }
 
   @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
+    // Native service writes 'notification_history' directly (no flutter. prefix)
+    // Flutter prefs reads it as 'notification_history' which maps to
+    // 'flutter.notification_history' in the XML — we need to match the service
     final raw = prefs.getString('notification_history') ?? '[]';
     try {
       final list = (jsonDecode(raw) as List)
           .map((e) => HistoryEntry.fromJson(e as Map<String, dynamic>))
           .toList();
-      // Sort newest first
       list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       if (mounted) setState(() { _entries = list; _loading = false; });
     } catch (_) {
@@ -86,8 +68,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF2A2A2A),
         title: const Text('Clear history?'),
-        content: const Text('This will delete all 30-day notification history.',
-            style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel', style: TextStyle(color: Colors.white38))),
@@ -112,7 +92,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
         e.message.toLowerCase().contains(q)).toList();
   }
 
-  // Group entries by date
   Map<String, List<HistoryEntry>> get _grouped {
     final map = <String, List<HistoryEntry>>{};
     for (final e in _filtered) {
@@ -122,16 +101,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final today = DateTime(now.year, now.month, now.day);
         final yesterday = today.subtract(const Duration(days: 1));
         final entryDate = DateTime(dt.year, dt.month, dt.day);
-
         String label;
-        if (entryDate == today) {
-          label = 'Today';
-        } else if (entryDate == yesterday) {
-          label = 'Yesterday';
-        } else {
-          label = DateFormat('EEEE d MMMM').format(dt);
-        }
-
+        if (entryDate == today) label = 'Today';
+        else if (entryDate == yesterday) label = 'Yesterday';
+        else label = DateFormat('EEEE d MMMM').format(dt);
         map.putIfAbsent(label, () => []).add(e);
       } catch (_) {
         map.putIfAbsent('Unknown', () => []).add(e);
@@ -151,15 +124,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           if (_entries.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.white54),
-              onPressed: _clear,
-            ),
+            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                onPressed: _clear),
         ],
       ),
       body: Column(
         children: [
-          // Search
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
             child: TextField(
@@ -170,18 +140,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 suffixIcon: _search.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _search = '');
-                        })
+                        onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
                     : null,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
               ),
               onChanged: (v) => setState(() => _search = v),
             ),
           ),
-
-          // Count
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Row(
@@ -194,7 +159,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
           ),
-
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
@@ -203,24 +167,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.notifications_none,
-                                size: 48, color: Colors.white24),
+                            const Icon(Icons.notifications_none, size: 48, color: Colors.white24),
                             const SizedBox(height: 12),
-                            Text(
-                              _search.isNotEmpty
-                                  ? 'No results for "$_search"'
-                                  : 'No history yet',
-                              style: const TextStyle(
-                                  color: Colors.white38, fontSize: 16),
-                            ),
-                            if (_search.isEmpty) ...[
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Intercepted notifications will appear here',
-                                style: TextStyle(
-                                    color: Colors.white24, fontSize: 12),
+                            Text(_search.isNotEmpty ? 'No results for "$_search"' : 'No history yet',
+                                style: const TextStyle(color: Colors.white38, fontSize: 16)),
+                            if (_search.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.fromLTRB(32, 4, 32, 0),
+                                child: Text(
+                                  'Intercepted notifications will appear here.\nCheck the Log tab if nothing is appearing.',
+                                  style: TextStyle(color: Colors.white24, fontSize: 12),
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
-                            ],
                           ],
                         ),
                       )
@@ -228,39 +187,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         itemCount: dateKeys.length,
                         itemBuilder: (ctx, i) {
-                          final dateLabel = dateKeys[i];
-                          final dayEntries = grouped[dateLabel]!;
+                          final label = dateKeys[i];
+                          final dayEntries = grouped[label]!;
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Date header
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-                                child: Text(dateLabel,
+                                child: Text(label,
                                     style: const TextStyle(
-                                        color: Color(0xFF6B9E78),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5)),
+                                        color: Color(0xFF6B9E78), fontSize: 13,
+                                        fontWeight: FontWeight.w600, letterSpacing: 0.5)),
                               ),
                               Container(
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1E1E1E),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
+                                    color: const Color(0xFF1E1E1E),
+                                    borderRadius: BorderRadius.circular(16)),
                                 clipBehavior: Clip.hardEdge,
                                 child: Column(
                                   children: dayEntries.asMap().entries.map((entry) {
                                     final idx = entry.key;
                                     final e = entry.value;
-                                    return Column(
-                                      children: [
-                                        _HistoryTile(entry: e),
-                                        if (idx < dayEntries.length - 1)
-                                          const Divider(
-                                              color: Colors.white10, height: 1),
-                                      ],
-                                    );
+                                    return Column(children: [
+                                      _Tile(entry: e),
+                                      if (idx < dayEntries.length - 1)
+                                        const Divider(color: Colors.white10, height: 1),
+                                    ]);
                                   }).toList(),
                                 ),
                               ),
@@ -275,111 +227,75 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
-class _HistoryTile extends StatelessWidget {
+class _Tile extends StatelessWidget {
   final HistoryEntry entry;
-  const _HistoryTile({required this.entry});
+  const _Tile({required this.entry});
 
-  String _timeLabel() {
-    try {
-      final dt = DateTime.parse(entry.timestamp).toLocal();
-      return DateFormat('HH:mm').format(dt);
-    } catch (_) {
-      return '';
-    }
+  String _time() {
+    try { return DateFormat('HH:mm').format(DateTime.parse(entry.timestamp).toLocal()); }
+    catch (_) { return ''; }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // App avatar
-          _AppAvatar(entry.packageName, entry.appName),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        entry.appName,
-                        style: const TextStyle(
-                            color: Color(0xFF6B9E78),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Text(_timeLabel(),
-                        style: const TextStyle(
-                            color: Colors.white30, fontSize: 11)),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  entry.title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 14),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  entry.message,
-                  style: const TextStyle(
-                      color: Colors.white60, fontSize: 13, height: 1.3),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (entry.hadImage) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: const [
-                      Icon(Icons.image_outlined,
-                          color: Colors.white30, size: 12),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _Avatar(entry.packageName, entry.appName),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(child: Text(entry.appName,
+                        style: const TextStyle(color: Color(0xFF6B9E78),
+                            fontSize: 11, fontWeight: FontWeight.w600))),
+                    Text(_time(),
+                        style: const TextStyle(color: Colors.white30, fontSize: 11)),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(entry.title,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(entry.message,
+                      style: const TextStyle(color: Colors.white60, fontSize: 13, height: 1.3),
+                      maxLines: 3, overflow: TextOverflow.ellipsis),
+                  if (entry.hadImage) ...[
+                    const SizedBox(height: 4),
+                    const Row(children: [
+                      Icon(Icons.image_outlined, color: Colors.white30, size: 12),
                       SizedBox(width: 4),
                       Text('Contained image',
-                          style: TextStyle(
-                              color: Colors.white30, fontSize: 11)),
-                    ],
-                  ),
+                          style: TextStyle(color: Colors.white30, fontSize: 11)),
+                    ]),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
-class _AppAvatar extends StatelessWidget {
-  final String packageName;
-  final String appName;
-  const _AppAvatar(this.packageName, this.appName);
-
+class _Avatar extends StatelessWidget {
+  final String pkg, name;
+  const _Avatar(this.pkg, this.name);
   @override
   Widget build(BuildContext context) {
-    final letter = appName.isNotEmpty ? appName[0].toUpperCase() : '?';
-    const colors = [
-      Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFF9C27B0),
-      Color(0xFFFF5722), Color(0xFF00BCD4), Color(0xFFFF9800),
-      Color(0xFF607D8B), Color(0xFFE91E63), Color(0xFF795548),
-      Color(0xFF3F51B5), Color(0xFF009688),
-    ];
-    final color = colors[packageName.hashCode.abs() % colors.length];
+    final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    const colors = [Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFF9C27B0),
+      Color(0xFFFF5722), Color(0xFF00BCD4), Color(0xFFFF9800), Color(0xFF607D8B),
+      Color(0xFFE91E63), Color(0xFF795548), Color(0xFF3F51B5), Color(0xFF009688)];
     return Container(
       width: 38, height: 38,
       decoration: BoxDecoration(
-          color: color, borderRadius: BorderRadius.circular(10)),
-      child: Center(
-        child: Text(letter,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-      ),
+          color: colors[pkg.hashCode.abs() % colors.length],
+          borderRadius: BorderRadius.circular(10)),
+      child: Center(child: Text(letter,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
     );
   }
 }

@@ -9,7 +9,6 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
@@ -33,7 +32,7 @@ class NotificationService : NotificationListenerService() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
-    data class BufferedNotification(
+    data class Buffered(
         val title: String,
         val text: String,
         val actions: List<Notification.Action>,
@@ -41,540 +40,436 @@ class NotificationService : NotificationListenerService() {
         val imageBase64: String? = null
     )
 
-    private val messageBuffer = mutableMapOf<String, MutableList<BufferedNotification>>()
-    private val debounceHandlers = mutableMapOf<String, Runnable>()
+    private val buffer = mutableMapOf<String, MutableList<Buffered>>()
+    private val debounce = mutableMapOf<String, Runnable>()
     private val DEBOUNCE_MS = 4000L
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
+    // ── SharedPreferences helpers ──────────────────────────────────────────────
+    // Flutter's SharedPreferences plugin stores all keys with a "flutter." prefix.
+    // Booleans, ints are stored as their native types by flutter_shared_preferences v2+.
+    // StringLists are stored as a JSON array string with key "flutter.<key>".
+
+    private fun sp() = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+
+    private fun spBool(key: String, def: Boolean) =
+        sp().getBoolean("flutter.$key", def)
+
+    private fun spInt(key: String, def: Int) =
+        sp().getInt("flutter.$key", def)
+
+    private fun spStr(key: String, def: String) =
+        sp().getString("flutter.$key", def) ?: def
+
+    // Flutter stores StringList as JSON array
+    private fun spList(key: String): List<String> {
+        val raw = sp().getString("flutter.$key", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Write log/history WITHOUT flutter. prefix so Flutter prefs (which adds flutter.)
+    // reads them back correctly via getString('service_log') -> reads 'flutter.service_log'
+    private fun writeStr(key: String, value: String) {
+        sp().edit().putString("flutter.$key", value).apply()
+    }
+
+    // ── Main entry point ───────────────────────────────────────────────────────
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("flutter.service_enabled", true)) return
+        if (!spBool("service_enabled", true)) return
 
-        val packageName = sbn.packageName
-        if (packageName == applicationContext.packageName) return
+        val pkg = sbn.packageName
+        if (pkg == applicationContext.packageName) return
 
-        val enabledApps = prefs.getStringSet("flutter.enabled_apps_set", null)
-        if (enabledApps != null && enabledApps.isNotEmpty() && !enabledApps.contains(packageName)) return
+        // Check selected apps
+        val selected = spList("enabled_apps_set")
+        if (selected.isNotEmpty() && !selected.contains(pkg)) return
 
         val extras = sbn.notification.extras
         val title = extras.getString(Notification.EXTRA_TITLE) ?: return
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: return
         if (text.length < 3) return
 
-        val appName = appName(packageName)
-
-        // Extract image if present
-        val imageBase64 = extractImageFromNotification(sbn.notification)
-
+        val name = appName(pkg)
+        val image = extractImage(sbn.notification)
         val actions = sbn.notification.actions?.toList() ?: emptyList()
 
-        appendLog(prefs, "info", "Intercepted from $appName: \"$title\"${if (imageBase64 != null) " [+image]" else ""}")
+        log("info", "Intercepted from $name: \"${title.take(60)}\"${if (image != null) " [+image]" else ""}")
+        saveHistory(pkg, name, title, text, image != null)
+        recordStat(pkg, intercepted = true, summarised = false)
 
-        // Save to 30-day history
-        saveToHistory(prefs, packageName, appName, title, text, imageBase64 != null)
+        buffer.getOrPut(pkg) { mutableListOf() }
+            .add(Buffered(title, text, actions, sbn.key, image))
 
-        // Record stat
-        recordStat(prefs, packageName, intercepted = true, summarised = false)
+        val threshold = spInt("notification_threshold", 2)
+        val count = buffer[pkg]?.size ?: 0
+        log("info", "Buffered $count/$threshold from $name")
 
-        if (!messageBuffer.containsKey(packageName)) {
-            messageBuffer[packageName] = mutableListOf()
-        }
-        messageBuffer[packageName]?.add(BufferedNotification(title, text, actions, sbn.key, imageBase64))
-
-        val threshold = prefs.getInt("flutter.notification_threshold", 2)
-        val buffered = messageBuffer[packageName]?.size ?: 0
-
-        appendLog(prefs, "info", "Buffered $buffered/${threshold} from $appName")
-
-        debounceHandlers[packageName]?.let { handler.removeCallbacks(it) }
-        val delayMs = if (threshold == 1) 1500L else DEBOUNCE_MS
+        debounce[pkg]?.let { handler.removeCallbacks(it) }
 
         val runnable = Runnable {
-            val buf = messageBuffer[packageName]?.toList() ?: return@Runnable
-            val currentThreshold = prefs.getInt("flutter.notification_threshold", 2)
-
-            if (buf.size < currentThreshold) {
-                appendLog(prefs, "info", "Waiting for more from $appName (${buf.size}/$currentThreshold)")
+            val buf = buffer[pkg]?.toList() ?: return@Runnable
+            val thr = spInt("notification_threshold", 2)
+            if (buf.size < thr) {
+                log("info", "Still waiting — ${buf.size}/$thr from $name")
                 return@Runnable
             }
 
-            messageBuffer.remove(packageName)
-            debounceHandlers.remove(packageName)
+            buffer.remove(pkg)
+            debounce.remove(pkg)
 
-            appendLog(prefs, "info", "Threshold met — sending ${buf.size} notifications from $appName to AI")
+            log("info", "Threshold met — summarising ${buf.size} from $name")
 
-            // Dismiss originals if setting is on
-            val dismissOriginals = prefs.getBoolean("flutter.dismiss_on_app_usage", true)
-            if (dismissOriginals) {
-                buf.forEach { bn ->
-                    try { cancelNotification(bn.sbnKey) } catch (_: Exception) {}
-                }
-                appendLog(prefs, "info", "Dismissed ${buf.size} original notification(s) from $appName")
+            if (spBool("dismiss_on_app_usage", true)) {
+                buf.forEach { try { cancelNotification(it.sbnKey) } catch (_: Exception) {} }
+                log("info", "Dismissed ${buf.size} original(s) from $name")
             }
 
             executor.execute {
-                val summary = getSummaryFromAI(prefs, packageName, buf)
+                val summary = callAI(pkg, buf)
                 if (summary != null) {
                     val allActions = buf.flatMap { it.actions }.distinctBy { it.title?.toString() }
-                    postSummaryNotification(packageName, summary, allActions, buf.size, prefs)
-                    recordStat(prefs, packageName, intercepted = false, summarised = true)
-                    appendLog(prefs, "success", "Summary posted for $appName: \"${summary.take(80)}${if (summary.length > 80) "…" else ""}\"")
+                    postSummary(pkg, summary, allActions, buf.size)
+                    recordStat(pkg, intercepted = false, summarised = true)
+                    log("success", "Summary posted for $name: \"${summary.take(80)}${if (summary.length > 80) "…" else ""}\"")
                 } else {
-                    appendLog(prefs, "error", "AI returned no summary for $appName — check provider settings and API key")
+                    log("error", "No summary for $name — check AI Provider config and API key in the app")
                 }
             }
         }
 
-        debounceHandlers[packageName] = runnable
-        handler.postDelayed(runnable, delayMs)
+        debounce[pkg] = runnable
+        handler.postDelayed(runnable, if (threshold == 1) 1500L else DEBOUNCE_MS)
     }
 
     // ── AI dispatch ────────────────────────────────────────────────────────────
 
-    private fun getSummaryFromAI(
-        prefs: android.content.SharedPreferences,
-        packageName: String,
-        buffered: List<BufferedNotification>
-    ): String? {
-        val provider = prefs.getString("flutter.ai_provider", "claude") ?: "claude"
-        val apiKey = prefs.getString("flutter.api_key_$provider", "") ?: ""
-        val model = prefs.getString("flutter.model_$provider", defaultModel(provider)) ?: defaultModel(provider)
-        val baseUrl = prefs.getString("flutter.base_url_$provider", defaultBaseUrl(provider)) ?: defaultBaseUrl(provider)
-        val summaryLength = prefs.getInt("flutter.summary_length", 2)
+    private fun callAI(pkg: String, buf: List<Buffered>): String? {
+        val provider = spStr("ai_provider", "claude")
+        val apiKey = spStr("api_key_$provider", "")
+        val model = spStr("model_$provider", "")
+        val baseUrl = spStr("base_url_$provider", defaultUrl(provider))
+        val length = spInt("summary_length", 2)
 
-        val lengthHint = when (summaryLength) {
+        if (model.isEmpty()) {
+            log("warn", "No model set for $provider — enter one in AI Provider settings")
+            return null
+        }
+
+        val hint = when (length) {
             1 -> "in one very brief sentence (max 10 words)"
             3 -> "in 2-3 sentences with key details"
             else -> "in one clear sentence"
         }
 
-        val appName = appName(packageName)
-        val msgs = buffered.joinToString("\n") { "• ${it.title}: ${it.text}" }
-        val prompt = "Summarise these $appName messages $lengthHint. Be direct, no preamble:\n\n$msgs"
+        val name = appName(pkg)
+        val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
+        val prompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
+        val images = buf.mapNotNull { it.imageBase64 }
+        val vision = supportsVision(provider, model)
 
-        // Check if any notification has an image and provider supports multimodal
-        val images = buffered.mapNotNull { it.imageBase64 }
-        val supportsMultimodal = supportsMultimodal(provider, model)
-
-        appendLog(prefs, "info", "Calling $provider (${model.take(30)})${if (images.isNotEmpty() && supportsMultimodal) " with ${images.size} image(s)" else ""}")
+        log("info", "Calling $provider / $model${if (images.isNotEmpty() && vision) " [+${images.size} image(s)]" else ""}")
 
         return try {
             when (provider) {
-                "claude" -> callClaude(apiKey, model, prompt, baseUrl, if (supportsMultimodal) images else emptyList())
-                "openai" -> callOpenAICompat(apiKey, model, prompt, baseUrl, if (supportsMultimodal) images else emptyList())
-                "openrouter" -> callOpenAICompat(apiKey, model, prompt, "https://openrouter.ai", if (supportsMultimodal) images else emptyList(), extraHeaders = mapOf("HTTP-Referer" to "com.craigadams.notifyai"))
-                "gemini" -> callGemini(apiKey, model, prompt, if (supportsMultimodal) images else emptyList())
-                "ollama" -> callOllama(baseUrl, model, prompt, apiKey)
-                "local" -> callOpenAICompat(apiKey, model, prompt, baseUrl)
-                "gemini_nano" -> { appendLog(prefs, "warn", "Gemini Nano on-device not yet implemented"); null }
-                else -> null
+                "claude"      -> callClaude(apiKey, model, prompt, baseUrl, if (vision) images else emptyList())
+                "openai"      -> callOpenAI(apiKey, model, prompt, baseUrl, if (vision) images else emptyList())
+                "openrouter"  -> callOpenAI(apiKey, model, prompt, "https://openrouter.ai",
+                    if (vision) images else emptyList(),
+                    extra = mapOf("HTTP-Referer" to "com.craigadams.notifyai"))
+                "gemini"      -> callGemini(apiKey, model, prompt, if (vision) images else emptyList())
+                "ollama"      -> callOllama(baseUrl, model, prompt, apiKey)
+                "local"       -> callOpenAI(apiKey, model, prompt, baseUrl)
+                "gemini_nano" -> { log("warn", "Gemini Nano on-device not yet implemented"); null }
+                else          -> null
             }
         } catch (e: Exception) {
-            appendLog(prefs, "error", "AI call failed [$provider]: ${e.message}")
+            log("error", "AI call failed [$provider]: ${e.message}")
             null
         }
     }
 
-    private fun supportsMultimodal(provider: String, model: String): Boolean {
-        return when (provider) {
-            "claude" -> true // All Claude models support vision
-            "openai" -> model.contains("gpt-4") || model.contains("gpt-4o")
-            "gemini" -> true
-            "openrouter" -> model.contains("claude") || model.contains("gpt-4o") || model.contains("gemini")
-            else -> false
-        }
+    private fun supportsVision(provider: String, model: String) = when (provider) {
+        "claude"     -> true
+        "openai"     -> model.contains("gpt-4")
+        "gemini"     -> true
+        "openrouter" -> model.contains("claude") || model.contains("gpt-4o") || model.contains("gemini")
+        else         -> false
     }
 
-    // ── API callers ────────────────────────────────────────────────────────────
+    // ── API implementations ────────────────────────────────────────────────────
 
-    private fun callClaude(
-        apiKey: String, model: String, prompt: String,
-        baseUrl: String, images: List<String> = emptyList()
-    ): String? {
-        if (apiKey.isEmpty()) return null
-        val url = URL("${baseUrl.trimEnd('/')}/v1/messages")
-
-        // Build content array — images first, then text
-        val contentArr = JSONArray()
+    private fun callClaude(key: String, model: String, prompt: String,
+                           base: String, images: List<String>): String? {
+        if (key.isEmpty()) { log("error", "Claude: no API key set"); return null }
+        val url = URL("${base.trimEnd('/')}/v1/messages")
+        val content = JSONArray()
         images.forEach { b64 ->
-            contentArr.put(JSONObject().apply {
+            content.put(JSONObject().apply {
                 put("type", "image")
                 put("source", JSONObject().apply {
-                    put("type", "base64")
-                    put("media_type", "image/jpeg")
-                    put("data", b64)
+                    put("type", "base64"); put("media_type", "image/jpeg"); put("data", b64)
                 })
             })
         }
-        contentArr.put(JSONObject().apply {
-            put("type", "text")
-            put("text", prompt)
-        })
-
+        content.put(JSONObject().apply { put("type", "text"); put("text", prompt) })
         val body = JSONObject().apply {
-            put("model", model)
-            put("max_tokens", 150)
+            put("model", model); put("max_tokens", 150)
             put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user")
-                put("content", contentArr)
+                put("role", "user"); put("content", content)
             }))
         }.toString()
-
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("x-api-key", apiKey)
-            setRequestProperty("anthropic-version", "2023-06-01")
-            connectTimeout = 20000; readTimeout = 40000; doOutput = true
-        }
-        OutputStreamWriter(conn.outputStream).use { it.write(body) }
-
-        if (conn.responseCode == 200) {
-            return JSONObject(conn.inputStream.bufferedReader().readText())
+        val conn = connect(url, mapOf(
+            "x-api-key" to key, "anthropic-version" to "2023-06-01"))
+        conn.outputStream.writer().use { it.write(body) }
+        if (conn.responseCode == 200)
+            return JSONObject(conn.inputStream.reader().readText())
                 .getJSONArray("content").getJSONObject(0).getString("text").trim()
-        }
-        Log.e(TAG, "Claude ${conn.responseCode}: ${conn.errorStream?.bufferedReader()?.readText()}")
+        log("error", "Claude ${conn.responseCode}: ${conn.errorStream?.reader()?.readText()?.take(200)}")
         return null
     }
 
-    private fun callOpenAICompat(
-        apiKey: String, model: String, prompt: String, baseUrl: String,
-        images: List<String> = emptyList(),
-        extraHeaders: Map<String, String> = emptyMap()
-    ): String? {
-        val url = URL("${baseUrl.trimEnd('/')}/v1/chat/completions")
-
-        val contentArr = JSONArray()
-        // Add images if present
-        images.forEach { b64 ->
-            contentArr.put(JSONObject().apply {
-                put("type", "image_url")
-                put("image_url", JSONObject().apply {
-                    put("url", "data:image/jpeg;base64,$b64")
-                })
-            })
+    private fun callOpenAI(key: String, model: String, prompt: String, base: String,
+                           images: List<String> = emptyList(),
+                           extra: Map<String, String> = emptyMap()): String? {
+        val url = URL("${base.trimEnd('/')}/v1/chat/completions")
+        val msgContent: Any = if (images.isEmpty()) {
+            prompt
+        } else {
+            JSONArray().apply {
+                images.forEach { b64 ->
+                    put(JSONObject().apply {
+                        put("type", "image_url")
+                        put("image_url", JSONObject().apply {
+                            put("url", "data:image/jpeg;base64,$b64")
+                        })
+                    })
+                }
+                put(JSONObject().apply { put("type", "text"); put("text", prompt) })
+            }
         }
-        contentArr.put(JSONObject().apply {
-            put("type", "text")
-            put("text", prompt)
-        })
-
-        val messagesArr = JSONArray().put(JSONObject().apply {
-            put("role", "user")
-            put("content", if (images.isEmpty()) prompt else contentArr)
-        })
-
         val body = JSONObject().apply {
-            put("model", model)
-            put("max_tokens", 150)
-            put("messages", messagesArr)
+            put("model", model); put("max_tokens", 150)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user"); put("content", msgContent)
+            }))
         }.toString()
-
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            if (apiKey.isNotEmpty()) setRequestProperty("Authorization", "Bearer $apiKey")
-            extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
-            connectTimeout = 20000; readTimeout = 40000; doOutput = true
-        }
-        OutputStreamWriter(conn.outputStream).use { it.write(body) }
-
-        if (conn.responseCode == 200) {
-            return JSONObject(conn.inputStream.bufferedReader().readText())
+        val headers = mutableMapOf<String, String>()
+        if (key.isNotEmpty()) headers["Authorization"] = "Bearer $key"
+        headers.putAll(extra)
+        val conn = connect(url, headers)
+        conn.outputStream.writer().use { it.write(body) }
+        if (conn.responseCode == 200)
+            return JSONObject(conn.inputStream.reader().readText())
                 .getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").getString("content").trim()
-        }
-        Log.e(TAG, "OpenAI-compat ${conn.responseCode}: ${conn.errorStream?.bufferedReader()?.readText()}")
+        log("error", "OpenAI-compat ${conn.responseCode}: ${conn.errorStream?.reader()?.readText()?.take(200)}")
         return null
     }
 
-    private fun callGemini(
-        apiKey: String, model: String, prompt: String,
-        images: List<String> = emptyList()
-    ): String? {
-        if (apiKey.isEmpty()) return null
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey")
-
-        val partsArr = JSONArray()
+    private fun callGemini(key: String, model: String, prompt: String,
+                           images: List<String>): String? {
+        if (key.isEmpty()) { log("error", "Gemini: no API key set"); return null }
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key")
+        val parts = JSONArray()
         images.forEach { b64 ->
-            partsArr.put(JSONObject().apply {
+            parts.put(JSONObject().apply {
                 put("inline_data", JSONObject().apply {
-                    put("mime_type", "image/jpeg")
-                    put("data", b64)
+                    put("mime_type", "image/jpeg"); put("data", b64)
                 })
             })
         }
-        partsArr.put(JSONObject().apply { put("text", prompt) })
-
+        parts.put(JSONObject().apply { put("text", prompt) })
         val body = JSONObject().apply {
-            put("contents", JSONArray().put(JSONObject().apply {
-                put("parts", partsArr)
-            }))
+            put("contents", JSONArray().put(JSONObject().apply { put("parts", parts) }))
             put("generationConfig", JSONObject().apply { put("maxOutputTokens", 150) })
         }.toString()
-
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            connectTimeout = 20000; readTimeout = 40000; doOutput = true
-        }
-        OutputStreamWriter(conn.outputStream).use { it.write(body) }
-
-        if (conn.responseCode == 200) {
-            return JSONObject(conn.inputStream.bufferedReader().readText())
+        val conn = connect(url, emptyMap())
+        conn.outputStream.writer().use { it.write(body) }
+        if (conn.responseCode == 200)
+            return JSONObject(conn.inputStream.reader().readText())
                 .getJSONArray("candidates").getJSONObject(0)
                 .getJSONObject("content").getJSONArray("parts")
                 .getJSONObject(0).getString("text").trim()
-        }
+        log("error", "Gemini ${conn.responseCode}: ${conn.errorStream?.reader()?.readText()?.take(200)}")
         return null
     }
 
-    private fun callOllama(baseUrl: String, model: String, prompt: String, apiKey: String): String? {
-        if (baseUrl.isEmpty()) return null
-        val url = URL("${baseUrl.trimEnd('/')}/api/generate")
+    private fun callOllama(base: String, model: String, prompt: String, key: String): String? {
+        if (base.isEmpty()) { log("error", "Ollama: no URL configured — set Base URL in AI Provider settings"); return null }
+        val url = URL("${base.trimEnd('/')}/api/generate")
         val body = """{"model":"$model","prompt":"${esc(prompt)}","stream":false}"""
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        val headers = if (key.isNotEmpty()) mapOf("Authorization" to "Bearer $key") else emptyMap()
+        val conn = connect(url, headers, timeout = 120000)
+        conn.outputStream.writer().use { it.write(body) }
+        if (conn.responseCode == 200)
+            return JSONObject(conn.inputStream.reader().readText()).getString("response").trim()
+        log("error", "Ollama ${conn.responseCode}: ${conn.errorStream?.reader()?.readText()?.take(200)}")
+        return null
+    }
+
+    private fun connect(url: URL, headers: Map<String, String>,
+                        timeout: Int = 30000): HttpURLConnection {
+        return (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
-            if (apiKey.isNotEmpty()) setRequestProperty("Authorization", "Bearer $apiKey")
-            connectTimeout = 30000; readTimeout = 120000; doOutput = true
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            connectTimeout = 15000
+            readTimeout = timeout
+            doOutput = true
         }
-        OutputStreamWriter(conn.outputStream).use { it.write(body) }
-        if (conn.responseCode == 200) {
-            return JSONObject(conn.inputStream.bufferedReader().readText()).getString("response").trim()
-        }
-        return null
     }
 
     // ── Notification posting ───────────────────────────────────────────────────
 
-    private fun postSummaryNotification(
-        packageName: String,
-        summary: String,
-        actions: List<Notification.Action>,
-        count: Int,
-        prefs: android.content.SharedPreferences
-    ) {
+    private fun postSummary(pkg: String, summary: String,
+                             actions: List<Notification.Action>, count: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val groupId = "notify_ai_group_$packageName"
-        val channelId = "notify_ai_$packageName"
-        val name = appName(packageName)
+        val groupId = "notify_ai_group_$pkg"
+        val channelId = "notify_ai_$pkg"
+        val name = appName(pkg)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannelGroup(NotificationChannelGroup(groupId, name))
-            val ch = NotificationChannel(channelId, "$name Summaries", NotificationManager.IMPORTANCE_DEFAULT)
-            ch.group = groupId
+            val ch = NotificationChannel(channelId, "$name Summaries",
+                NotificationManager.IMPORTANCE_DEFAULT).apply { group = groupId }
             nm.createNotificationChannel(ch)
         }
 
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             Notification.Builder(this, channelId)
-        } else {
-            @Suppress("DEPRECATION") Notification.Builder(this)
-        }
+        else @Suppress("DEPRECATION") Notification.Builder(this)
 
-        val countText = if (count > 1) "$count messages · " else ""
+        val label = if (count > 1) "$count messages · " else ""
         builder.setContentTitle("$name · AI Summary")
             .setContentText(summary)
-            .setStyle(Notification.BigTextStyle().bigText(summary).setSummaryText("${countText}AI summary"))
+            .setStyle(Notification.BigTextStyle().bigText(summary)
+                .setSummaryText("${label}AI summary"))
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
             .setGroup(groupId)
 
-        val retainActions = prefs.getBoolean("flutter.retain_original_actions", true)
-        if (retainActions) {
-            actions.take(3).forEach { action ->
-                try { builder.addAction(action) } catch (_: Exception) {}
-            }
+        if (spBool("retain_original_actions", true)) {
+            actions.take(3).forEach { try { builder.addAction(it) } catch (_: Exception) {} }
         }
 
-        nm.notify("$packageName:summary".hashCode(), builder.build())
+        nm.notify("$pkg:summary".hashCode(), builder.build())
     }
 
     // ── Image extraction ───────────────────────────────────────────────────────
 
-    private fun extractImageFromNotification(notification: Notification): String? {
+    private fun extractImage(n: Notification): String? {
         return try {
-            val extras = notification.extras
-
-            // Try EXTRA_PICTURE first (big picture style notifications)
-            val picture = extras.getParcelable<android.graphics.Bitmap>(Notification.EXTRA_PICTURE)
-            if (picture != null) {
-                return bitmapToBase64(picture)
-            }
-
-            // Try large icon
+            val extras = n.extras
+            val pic = extras.getParcelable<android.graphics.Bitmap>(Notification.EXTRA_PICTURE)
+            if (pic != null) return toBas64(pic)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val largeIcon = extras.getParcelable<Icon>(Notification.EXTRA_LARGE_ICON)
-                if (largeIcon != null) {
-                    val drawable = largeIcon.loadDrawable(this)
-                    if (drawable is BitmapDrawable) {
-                        return bitmapToBase64(drawable.bitmap)
-                    }
+                val icon = extras.getParcelable<Icon>(Notification.EXTRA_LARGE_ICON)
+                if (icon != null) {
+                    val d = icon.loadDrawable(this)
+                    if (d is BitmapDrawable) return toBas64(d.bitmap)
                 }
             }
-
             null
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not extract image: ${e.message}")
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
-    private fun bitmapToBase64(bitmap: Bitmap): String? {
+    private fun toBas64(bmp: Bitmap): String? {
         return try {
-            // Scale down to max 512px on longest side to keep payload reasonable
-            val maxDim = 512
-            val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
-                val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
-                val (w, h) = if (bitmap.width > bitmap.height) {
-                    Pair(maxDim, (maxDim / ratio).toInt())
-                } else {
-                    Pair((maxDim * ratio).toInt(), maxDim)
-                }
-                Bitmap.createScaledBitmap(bitmap, w, h, true)
-            } else {
-                bitmap
-            }
-
-            val stream = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-            Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Log.w(TAG, "Bitmap to base64 failed: ${e.message}")
-            null
-        }
+            val max = 512
+            val scaled = if (bmp.width > max || bmp.height > max) {
+                val r = bmp.width.toFloat() / bmp.height
+                val (w, h) = if (bmp.width > bmp.height) Pair(max, (max / r).toInt())
+                else Pair((max * r).toInt(), max)
+                Bitmap.createScaledBitmap(bmp, w, h, true)
+            } else bmp
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Exception) { null }
     }
 
     // ── Logging ────────────────────────────────────────────────────────────────
+    // Write with flutter. prefix so Flutter prefs reads it back correctly
 
-    private fun appendLog(
-        prefs: android.content.SharedPreferences,
-        level: String,
-        message: String
-    ) {
-        Log.d(TAG, "[$level] $message")
+    private fun log(level: String, msg: String) {
+        Log.d(TAG, "[$level] $msg")
         try {
-            val key = "service_log"
-            val existing = prefs.getString(key, "[]") ?: "[]"
-            val arr = try { JSONArray(existing) } catch (_: Exception) { JSONArray() }
-
+            val sp = sp()
+            val key = "flutter.service_log"
+            val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
             val ts = SimpleDateFormat("HH:mm:ss dd/MM", Locale.getDefault()).format(Date())
-            val entry = JSONObject().apply {
-                put("timestamp", ts)
-                put("level", level)
-                put("message", message)
-            }
-
-            arr.put(entry)
-
-            // Keep last 500 entries
-            val trimmed = JSONArray()
+            arr.put(JSONObject().apply { put("timestamp", ts); put("level", level); put("message", msg) })
+            // Keep last 500
+            val trim = JSONArray()
             val start = maxOf(0, arr.length() - 500)
-            for (i in start until arr.length()) trimmed.put(arr.get(i))
-
-            prefs.edit().putString(key, trimmed.toString()).apply()
-        } catch (e: Exception) {
-            Log.w(TAG, "Log write failed: ${e.message}")
-        }
+            for (i in start until arr.length()) trim.put(arr[i])
+            sp.edit().putString(key, trim.toString()).apply()
+        } catch (_: Exception) {}
     }
 
     // ── History ────────────────────────────────────────────────────────────────
 
-    private fun saveToHistory(
-        prefs: android.content.SharedPreferences,
-        packageName: String,
-        appName: String,
-        title: String,
-        message: String,
-        hadImage: Boolean
-    ) {
+    private fun saveHistory(pkg: String, name: String, title: String,
+                             msg: String, hadImage: Boolean) {
         try {
-            val key = "notification_history"
-            val existing = prefs.getString(key, "[]") ?: "[]"
-            val arr = try { JSONArray(existing) } catch (_: Exception) { JSONArray() }
-
+            val sp = sp()
+            val key = "flutter.notification_history"
+            val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
             val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date())
             arr.put(JSONObject().apply {
-                put("packageName", packageName)
-                put("appName", appName)
-                put("title", title)
-                put("message", message)
-                put("timestamp", ts)
-                put("hadImage", hadImage)
+                put("packageName", pkg); put("appName", name)
+                put("title", title); put("message", msg)
+                put("timestamp", ts); put("hadImage", hadImage)
             })
-
-            // Prune entries older than 30 days
-            val cutoff = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-            val cutoffStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(cutoff))
+            // Prune > 30 days
+            val cutoff = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                .format(Date(System.currentTimeMillis() - 30L * 86400000))
             val pruned = JSONArray()
             for (i in 0 until arr.length()) {
                 try {
-                    val obj = arr.getJSONObject(i)
-                    val objDate = obj.getString("timestamp").substring(0, 10)
-                    if (objDate >= cutoffStr) pruned.put(obj)
+                    val o = arr.getJSONObject(i)
+                    if (o.getString("timestamp").substring(0, 10) >= cutoff) pruned.put(o)
                 } catch (_: Exception) {}
             }
-
-            prefs.edit().putString(key, pruned.toString()).apply()
-        } catch (e: Exception) {
-            Log.w(TAG, "History write failed: ${e.message}")
-        }
+            sp.edit().putString(key, pruned.toString()).apply()
+        } catch (_: Exception) {}
     }
 
     // ── Stats ──────────────────────────────────────────────────────────────────
 
-    private fun recordStat(
-        prefs: android.content.SharedPreferences,
-        packageName: String,
-        intercepted: Boolean,
-        summarised: Boolean
-    ) {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val key = "flutter.stats_${packageName}_$today"
-        val obj = try { JSONObject(prefs.getString(key, "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-        if (intercepted) obj.put("intercepted", obj.optInt("intercepted", 0) + 1)
-        if (summarised) obj.put("summarised", obj.optInt("summarised", 0) + 1)
-        prefs.edit().putString(key, obj.toString()).apply()
-
-        val allKeysKey = "flutter.stats_all_keys"
-        val arr = try { JSONArray(prefs.getString(allKeysKey, "[]")) } catch (_: Exception) { JSONArray() }
-        var found = false
-        for (i in 0 until arr.length()) { if (arr.getString(i) == key) { found = true; break } }
-        if (!found) { arr.put(key); prefs.edit().putString(allKeysKey, arr.toString()).apply() }
+    private fun recordStat(pkg: String, intercepted: Boolean, summarised: Boolean) {
+        try {
+            val sp = sp()
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val key = "flutter.stats_${pkg}_$today"
+            val obj = try { JSONObject(sp.getString(key, "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+            if (intercepted) obj.put("intercepted", obj.optInt("intercepted") + 1)
+            if (summarised) obj.put("summarised", obj.optInt("summarised") + 1)
+            sp.edit().putString(key, obj.toString()).apply()
+            val allKey = "flutter.stats_all_keys"
+            val all = try { JSONArray(sp.getString(allKey, "[]")) } catch (_: Exception) { JSONArray() }
+            var found = false
+            for (i in 0 until all.length()) if (all.getString(i) == key) { found = true; break }
+            if (!found) { all.put(key); sp.edit().putString(allKey, all.toString()).apply() }
+        } catch (_: Exception) {}
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private fun appName(packageName: String): String {
-        return try {
-            val info = packageManager.getApplicationInfo(packageName, 0)
-            packageManager.getApplicationLabel(info).toString()
-        } catch (_: Exception) {
-            packageName.split(".").last().replaceFirstChar { it.uppercase() }
-        }
-    }
+    private fun appName(pkg: String) = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (_: Exception) { pkg.split(".").last().replaceFirstChar { it.uppercase() } }
 
-    private fun defaultModel(provider: String) = when (provider) {
-        "claude" -> "claude-haiku-4-5-20251001"
-        "openai" -> "gpt-4o-mini"
-        "ollama" -> "llama3.2:3b"
-        "openrouter" -> "anthropic/claude-haiku-4-5"
-        "gemini" -> "gemini-2.0-flash"
-        "gemini_nano" -> "gemini-nano"
-        "local" -> ""
-        else -> ""
-    }
-
-    private fun defaultBaseUrl(provider: String) = when (provider) {
-        "claude" -> "https://api.anthropic.com"
-        "openai" -> "https://api.openai.com"
+    private fun defaultUrl(provider: String) = when (provider) {
+        "claude"     -> "https://api.anthropic.com"
+        "openai"     -> "https://api.openai.com"
         "openrouter" -> "https://openrouter.ai"
-        else -> ""
+        else         -> ""
     }
 
-    private fun esc(text: String) = text
-        .replace("\\", "\\\\").replace("\"", "\\\"")
+    private fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
         .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 }
