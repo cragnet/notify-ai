@@ -29,9 +29,7 @@ class NotifyAIApp extends StatelessWidget {
       title: 'Notify AI',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      home: context.watch<SettingsProvider>().setupComplete
-          ? const MainShell()
-          : const SetupScreen(),
+      home: const _AppEntry(),
     );
   }
 
@@ -49,18 +47,32 @@ class NotifyAIApp extends StatelessWidget {
         backgroundColor: Color(0xFF121212),
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: Colors.white),
+        titleTextStyle: TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w500, color: Colors.white),
         iconTheme: IconThemeData(color: Colors.white),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: const Color(0xFF1A1A1A),
+        indicatorColor: const Color(0xFF2A3A2E),
+        labelTextStyle: MaterialStateProperty.all(
+          const TextStyle(fontSize: 12, color: Colors.white54),
+        ),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? const Color(0xFF6B9E78) : Colors.white38),
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF6B9E78)
+                : Colors.white38),
         trackColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? const Color(0xFF4A7A56) : Colors.white12),
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF4A7A56)
+                : Colors.white12),
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? const Color(0xFF6B9E78) : Colors.transparent),
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF6B9E78)
+                : Colors.transparent),
         checkColor: MaterialStateProperty.all(Colors.white),
         side: const BorderSide(color: Colors.white38),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
@@ -84,10 +96,23 @@ class NotifyAIApp extends StatelessWidget {
           backgroundColor: const Color(0xFF6B9E78),
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       useMaterial3: true,
     );
+  }
+}
+
+// Separate widget so context.watch works correctly after build
+class _AppEntry extends StatelessWidget {
+  const _AppEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    final setupComplete =
+        context.select<SettingsProvider, bool>((s) => s.setupComplete);
+    return setupComplete ? const MainShell() : const SetupScreen();
   }
 }
