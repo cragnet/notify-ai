@@ -4,6 +4,7 @@ import '../providers/settings_provider.dart';
 import '../models/provider_config.dart';
 import 'provider_settings_screen.dart';
 import 'app_selector_screen.dart';
+import 'import_export_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -155,6 +156,19 @@ class HomeScreen extends StatelessWidget {
                 onChanged: settings.setRetainOriginalActions,
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _Label('Data'),
+        _Card(
+          child: ListTile(
+            leading: const Icon(Icons.import_export, color: Colors.white54),
+            title: const Text('Import / Export settings'),
+            subtitle: const Text('Backup or restore all settings and selected apps',
+                style: TextStyle(color: Colors.white38, fontSize: 13)),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ImportExportScreen())),
           ),
         ),
         const SizedBox(height: 24),
