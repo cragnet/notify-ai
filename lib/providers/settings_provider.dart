@@ -161,5 +161,9 @@ class SettingsProvider extends ChangeNotifier {
     final list = enabledApps.toList();
     await _prefs.setStringList('enabled_apps', list);
     await _prefs.setStringList('enabled_apps_set', list);
+    await _prefs.reload();
+    // ignore: avoid_print
+    print('NotifyAI: saved enabled_apps_set: $list');
+    notifyListeners();
   }
 }

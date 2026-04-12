@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../providers/settings_provider.dart';
 import 'dart:convert';
+import 'dart:io';
 
 class ImportExportScreen extends StatefulWidget {
   const ImportExportScreen({super.key});
@@ -15,7 +17,6 @@ class ImportExportScreen extends StatefulWidget {
 class _ImportExportScreenState extends State<ImportExportScreen> {
   bool _exporting = false;
   bool _importing = false;
-  String? _exportJson;
   String? _statusMessage;
   bool _statusSuccess = true;
   final _importCtrl = TextEditingController();
@@ -30,9 +31,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
     setState(() { _exporting = true; _statusMessage = null; });
     try {
       final settings = context.read<SettingsProvider>();
-      final prefs = await SharedPreferences.getInstance();
 
-      // Build export object with all configurable settings
       final export = {
         'version': 1,
         'exported_at': DateTime.now().toIso8601String(),
@@ -47,15 +46,26 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         'provider_models': settings.providerModels,
         'provider_base_urls': settings.providerBaseUrls,
         'enabled_apps': settings.enabledApps.toList()..sort(),
-        // Note: API keys are NOT exported for security
-        'note': 'API keys are not exported. Re-enter them after importing.',
+        'note': 'API keys are not exported for security. Re-enter them after importing.',
       };
 
       final json = const JsonEncoder.withIndent('  ').convert(export);
+
+      // Write to file
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/notify_ai_settings.json');
+      await file.writeAsString(json);
+
+      // Share the file
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/json')],
+        subject: 'Notify AI Settings Export',
+        text: 'Notify AI settings exported ${DateTime.now().toString().substring(0, 16)}',
+      );
+
       setState(() {
-        _exportJson = json;
         _exporting = false;
-        _statusMessage = 'Export ready — copy or share below';
+        _statusMessage = 'Export file shared — save it somewhere safe';
         _statusSuccess = true;
       });
     } catch (e) {
@@ -83,15 +93,13 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       final settings = context.read<SettingsProvider>();
       final Map<String, dynamic> data = jsonDecode(text);
 
-      // Validate
-      if (data['version'] == null) throw Exception('Invalid export file — missing version');
+      if (data['version'] == null) throw Exception('Invalid export file');
 
       final s = data['settings'] as Map<String, dynamic>? ?? {};
       final models = data['provider_models'] as Map<String, dynamic>? ?? {};
       final urls = data['provider_base_urls'] as Map<String, dynamic>? ?? {};
       final apps = (data['enabled_apps'] as List?)?.cast<String>() ?? [];
 
-      // Apply settings
       if (s['ai_provider'] != null) await settings.setAiProvider(s['ai_provider']);
       if (s['summary_length'] != null) await settings.setSummaryLength(s['summary_length']);
       if (s['notification_threshold'] != null) await settings.setNotificationThreshold(s['notification_threshold']);
@@ -99,7 +107,6 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       if (s['retain_original_actions'] != null) await settings.setRetainOriginalActions(s['retain_original_actions']);
       if (s['service_enabled'] != null) await settings.setServiceEnabled(s['service_enabled']);
 
-      // Apply models and URLs
       for (final entry in models.entries) {
         await settings.setModel(entry.key, entry.value.toString());
       }
@@ -107,12 +114,11 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         await settings.setBaseUrl(entry.key, entry.value.toString());
       }
 
-      // Apply selected apps
       await settings.setEnabledApps(apps.toSet());
 
       setState(() {
         _importing = false;
-        _statusMessage = 'Import successful — ${apps.length} apps restored. Re-enter your API keys in Settings.';
+        _statusMessage = 'Import successful — ${apps.length} apps restored. Re-enter your API keys.';
         _statusSuccess = true;
         _importCtrl.clear();
       });
@@ -141,15 +147,12 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // Status message
             if (_statusMessage != null) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: _statusSuccess
-                      ? const Color(0xFF2A3A2E)
-                      : const Color(0xFF3A1A1A),
+                  color: _statusSuccess ? const Color(0xFF2A3A2E) : const Color(0xFF3A1A1A),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -161,13 +164,10 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        _statusMessage!,
-                        style: TextStyle(
-                          color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent,
-                          fontSize: 13,
-                        ),
-                      ),
+                      child: Text(_statusMessage!,
+                          style: TextStyle(
+                              color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent,
+                              fontSize: 13)),
                     ),
                   ],
                 ),
@@ -175,19 +175,17 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
               const SizedBox(height: 16),
             ],
 
-            // ── Export ──────────────────────────────────────────────────
             _Label('Export settings'),
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(16),
-              ),
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(16)),
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Exports all settings, provider configuration, and selected apps. API keys are not included for security.',
+                    'Exports all settings, provider config, and selected apps to a JSON file. API keys are not included for security.',
                     style: TextStyle(color: Colors.white54, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
@@ -198,82 +196,27 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                       icon: _exporting
                           ? const SizedBox(width: 16, height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.upload_outlined),
-                      label: Text(_exporting ? 'Exporting...' : 'Generate export'),
+                          : const Icon(Icons.share_outlined),
+                      label: Text(_exporting ? 'Exporting...' : 'Export to file'),
                     ),
                   ),
-
-                  if (_exportJson != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text('JSON',
-                                  style: TextStyle(color: Colors.white38, fontSize: 12)),
-                              const Spacer(),
-                              GestureDetector(
-                                onTap: () {
-                                  Clipboard.setData(ClipboardData(text: _exportJson!));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Copied to clipboard'),
-                                      backgroundColor: Color(0xFF4A7A56),
-                                    ),
-                                  );
-                                },
-                                child: const Row(
-                                  children: [
-                                    Icon(Icons.copy, color: Color(0xFF6B9E78), size: 14),
-                                    SizedBox(width: 4),
-                                    Text('Copy',
-                                        style: TextStyle(
-                                            color: Color(0xFF6B9E78), fontSize: 12)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _exportJson!,
-                            style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                                fontFamily: 'monospace'),
-                            maxLines: 20,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
 
             const SizedBox(height: 16),
 
-            // ── Import ──────────────────────────────────────────────────
             _Label('Import settings'),
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(16),
-              ),
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(16)),
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Paste a previously exported JSON to restore all settings. You will need to re-enter your API keys afterwards.',
+                    'Paste the contents of a previously exported JSON file to restore all settings.',
                     style: TextStyle(color: Colors.white54, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
@@ -297,14 +240,12 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                           : const Icon(Icons.download_outlined),
                       label: Text(_importing ? 'Importing...' : 'Import settings'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2A4A7A),
-                      ),
+                          backgroundColor: const Color(0xFF2A4A7A)),
                     ),
                   ),
                 ],
               ),
             ),
-
             const SizedBox(height: 32),
           ],
         ),
@@ -321,9 +262,7 @@ class _Label extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
         child: Text(text,
             style: const TextStyle(
-                color: Color(0xFF6B9E78),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5)),
+                color: Color(0xFF6B9E78), fontSize: 13,
+                fontWeight: FontWeight.w600, letterSpacing: 0.5)),
       );
 }

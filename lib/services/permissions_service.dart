@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class PermissionsService {
   static const _ch = MethodChannel('com.craigadams.notifyai/permissions');
@@ -30,5 +31,17 @@ class PermissionsService {
   }
   static Future<bool> isGeminiNanoAvailable() async {
     try { return await _ch.invokeMethod('isGeminiNanoAvailable') ?? false; } catch (_) { return false; }
+  }
+
+  // POST_NOTIFICATIONS permission (Android 13+)
+  static Future<bool> isPostNotificationsGranted() async {
+    if (await Permission.notification.isGranted) return true;
+    // On Android < 13 notifications are always allowed
+    return true;
+  }
+
+  static Future<bool> requestPostNotifications() async {
+    final status = await Permission.notification.request();
+    return status.isGranted;
   }
 }

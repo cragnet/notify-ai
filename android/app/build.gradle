@@ -5,15 +5,15 @@ plugins {
 }
 
 def localProperties = new Properties()
-def localPropertiesFile = rootProject.file('local.properties')
+def localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader -> localProperties.load(reader) }
+    localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
 }
 
 def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
+def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.withReader('UTF-8') { reader -> keystoreProperties.load(reader) }
+    keystorePropertiesFile.withReader("UTF-8") { reader -> keystoreProperties.load(reader) }
 }
 
 android {
@@ -25,43 +25,48 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    kotlinOptions { jvmTarget = '1.8' }
-    sourceSets { main.java.srcDirs += 'src/main/kotlin' }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+    }
 
     defaultConfig {
         applicationId "com.craigadams.notifyai"
-        minSdkVersion 26
-        targetSdkVersion flutter.targetSdkVersion
-        versionCode localProperties.getProperty('flutter.versionCode')?.toInteger() ?: 1
-        versionName localProperties.getProperty('flutter.versionName') ?: '1.0'
+        minSdk 26
+        targetSdk flutter.targetSdkVersion
+        versionCode localProperties.getProperty("flutter.versionCode")?.toInteger() ?: 1
+        versionName localProperties.getProperty("flutter.versionName") ?: "1.0"
     }
 
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+                storeFile file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
             }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig keystorePropertiesFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
         release {
-            signingConfig keystorePropertiesFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled false
         }
     }
 }
 
-flutter { source '../..' }
+flutter {
+    source "../.."
+}
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.0"

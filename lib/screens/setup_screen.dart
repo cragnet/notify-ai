@@ -13,6 +13,7 @@ class SetupScreen extends StatefulWidget {
 
 class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
   bool _notificationListener = false;
+  bool _postNotifications = false;
   bool _usageStats = false;
   bool _batteryOptimization = false;
 
@@ -36,18 +37,21 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
 
   Future<void> _checkAll() async {
     final nl = await PermissionsService.isNotificationListenerEnabled();
+    final pn = await PermissionsService.isPostNotificationsGranted();
     final us = await PermissionsService.isUsageStatsPermissionGranted();
     final bo = await PermissionsService.isBatteryOptimizationIgnored();
     if (mounted) {
       setState(() {
         _notificationListener = nl;
+        _postNotifications = pn;
         _usageStats = us;
         _batteryOptimization = bo;
       });
     }
   }
 
-  bool get _canContinue => _notificationListener;
+  // Only notification listener and post notifications are mandatory
+  bool get _canContinue => _notificationListener && _postNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -57,9 +61,7 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
           builder: (context, constraints) {
             return SingleChildScrollView(
               padding: EdgeInsets.symmetric(
-                horizontal: constraints.maxWidth > 600
-                    ? constraints.maxWidth * 0.15
-                    : 24,
+                horizontal: constraints.maxWidth > 600 ? constraints.maxWidth * 0.15 : 24,
                 vertical: 24,
               ),
               child: Column(
@@ -70,7 +72,7 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                       style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   const Text(
-                    'Grant the permissions below to get started.\nConfigure your AI provider in Settings after.',
+                    'Grant the permissions below to get started.\nConfigure your AI provider in Settings afterwards.',
                     style: TextStyle(color: Colors.white54, fontSize: 14),
                   ),
                   const SizedBox(height: 32),
@@ -81,6 +83,17 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                     granted: _notificationListener,
                     required: true,
                     onTap: () => PermissionsService.openNotificationListenerSettings(),
+                  ),
+                  const SizedBox(height: 20),
+                  _PermissionRow(
+                    title: 'Allow notifications',
+                    subtitle: 'Required — allows Notify AI to post AI summaries',
+                    granted: _postNotifications,
+                    required: true,
+                    onTap: () async {
+                      await PermissionsService.requestPostNotifications();
+                      await _checkAll();
+                    },
                   ),
                   const SizedBox(height: 20),
                   _PermissionRow(
@@ -112,16 +125,14 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                                   if (context.mounted) {
                                     Navigator.pushReplacement(
                                       context,
-                                      MaterialPageRoute(
-                                          builder: (_) => const MainShell()),
+                                      MaterialPageRoute(builder: (_) => const MainShell()),
                                     );
                                   }
                                 }
                               : null,
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 300),
-                            width: 64,
-                            height: 64,
+                            width: 64, height: 64,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: _canContinue
@@ -135,7 +146,7 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                         Text(
                           _canContinue
                               ? 'Tap to continue'
-                              : 'Grant notification access above to continue',
+                              : 'Grant required permissions above to continue',
                           style: TextStyle(
                             color: _canContinue ? Colors.white60 : Colors.white30,
                             fontSize: 13,
@@ -195,19 +206,15 @@ class _PermissionRow extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: granted ? Colors.white : Colors.white70,
-                        ),
-                      ),
+                      child: Text(title,
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: granted ? Colors.white : Colors.white70)),
                     ),
                     if (required && !granted)
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFF6B9E78).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(4),

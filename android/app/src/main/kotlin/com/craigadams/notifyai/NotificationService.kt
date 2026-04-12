@@ -72,13 +72,30 @@ class NotificationService : NotificationListenerService() {
     private fun spStr(key: String, def: String): String =
         sp().getString("flutter.$key", def) ?: def
 
-    // Flutter stores StringList as JSON array string
+    // Flutter stores StringList with a special prefix marker then a JSON array
+    // The prefix is: VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu (base64 of "This is the prefix for a list.")
+    // followed by ! and then the JSON array e.g. VGhpcyB...!["pkg1","pkg2"]
     private fun spList(key: String): List<String> {
-        val raw = sp().getString("flutter.$key", null) ?: return emptyList()
+        val sp = sp()
+        // Try both key variants — Flutter may store under either name
+        val raw = sp.getString("flutter.$key", null)
+            ?: sp.getString("flutter.${key.removeSuffix("_set")}", null)
+            ?: sp.getString("flutter.${key}_set", null)
+            ?: return emptyList()
+
+        log("info", "spList[$key] raw=${raw.take(120)}")
+
         return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { arr.getString(it) }
-        } catch (_: Exception) { emptyList() }
+            // Strip Flutter list prefix if present (everything up to and including the ! separator)
+            val jsonStr = if (raw.contains("!")) raw.substringAfter("!") else raw
+            val arr = JSONArray(jsonStr)
+            val result = (0 until arr.length()).map { arr.getString(it) }
+            log("info", "spList[$key] parsed ${result.size} entries: $result")
+            result
+        } catch (e: Exception) {
+            log("warn", "spList[$key] parse failed: ${e.message} raw=${raw.take(100)}")
+            emptyList()
+        }
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -87,7 +104,6 @@ class NotificationService : NotificationListenerService() {
         super.onListenerConnected()
         log("success", "=== Listener CONNECTED ===")
 
-        // Dump all relevant prefs so we can see what the service is reading
         val sp = sp()
         val allKeys = sp.all.keys.filter { it.startsWith("flutter.") }.sorted()
         log("info", "SharedPrefs has ${allKeys.size} flutter.* keys")
@@ -103,9 +119,13 @@ class NotificationService : NotificationListenerService() {
             postStatusNotification("Notify AI running — action needed",
                 "No apps selected. Open app → Per-app settings to choose apps.")
         } else {
-            log("success", "Monitoring ${selected.size} app(s): ${selected.joinToString(", ") { it.split(".").last() }}")
+            log("success", "Monitoring ${selected.size} app(s):")
+            selected.forEach { pkg ->
+                val name = appName(pkg)
+                log("success", "  ✓ $name ($pkg)")
+            }
             postStatusNotification("Notify AI running",
-                "Monitoring ${selected.size} app(s). Waiting for notifications.")
+                "Monitoring ${selected.size} app(s): ${selected.take(3).joinToString(", ") { appName(it) }}${if (selected.size > 3) "..." else ""}")
         }
     }
 
