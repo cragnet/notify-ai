@@ -175,16 +175,22 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun handleNotification(sbn: StatusBarNotification) {
-        val pkg = sbn.packageName
-        if (pkg == applicationContext.packageName) return
+        try {
+            val pkg = sbn.packageName
+            if (pkg == applicationContext.packageName) return
 
-        log("info", "--- Notification from: $pkg ---")
+            log("info", "--- Notification from: $pkg ---")
 
-        if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
+            if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
 
-        val selected = spList("enabled_apps_set")
-        if (selected.isEmpty()) { log("warn", "No apps selected"); return }
-        if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
+            val selected = try {
+                spList("enabled_apps_set")
+            } catch (e: Exception) {
+                log("error", "spList crash: ${e.javaClass.simpleName}: ${e.message}")
+                emptyList()
+            }
+            if (selected.isEmpty()) { log("warn", "No apps selected"); return }
+            if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
         val extras = sbn.notification.extras
         val title = try {
