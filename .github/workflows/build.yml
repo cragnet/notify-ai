@@ -30,12 +30,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Debug APK
-        run: flutter build apk --debug
+      - name: Build Release APK
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: notify-ai-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: notify-ai-release
+          path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
