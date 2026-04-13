@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../providers/settings_provider.dart';
 import '../models/provider_config.dart';
+import 'dart:io';
 
 class ProviderSettingsScreen extends StatefulWidget {
   const ProviderSettingsScreen({super.key});
@@ -117,15 +120,29 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                         children: [
                           if (_keyCtrl.text.isNotEmpty)
                             IconButton(
-                              icon: const Icon(Icons.copy, color: Colors.white38, size: 18),
-                              tooltip: 'Copy API key',
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _keyCtrl.text));
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                  content: Text('API key copied to clipboard'),
-                                  backgroundColor: Color(0xFF4A7A56),
-                                  duration: Duration(seconds: 2),
-                                ));
+                              icon: const Icon(Icons.ios_share, color: Colors.white38, size: 18),
+                              tooltip: 'Export API key to file',
+                              onPressed: () async {
+                                final key = _keyCtrl.text;
+                                // Copy to clipboard
+                                await Clipboard.setData(ClipboardData(text: key));
+                                // Write to file and share
+                                try {
+                                  final dir = await getTemporaryDirectory();
+                                  final file = File('${dir.path}/notify_ai_${_selectedProvider}_key.txt');
+                                  await file.writeAsString(key);
+                                  await Share.shareXFiles(
+                                    [XFile(file.path, mimeType: 'text/plain')],
+                                    subject: 'Notify AI — ${_selectedProvider} API key',
+                                  );
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                      content: Text('Export failed: $e'),
+                                      backgroundColor: Colors.redAccent,
+                                    ));
+                                  }
+                                }
                               },
                             ),
                           IconButton(
