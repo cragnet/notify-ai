@@ -26,30 +26,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Set version code from run number
-        run: |
-          sed -i "s/^version: .*/version: 1.0.${{ github.run_number }}+${{ github.run_number }}/" pubspec.yaml
-          echo "Version set to 1.0.${{ github.run_number }}+${{ github.run_number }}"
-
-      - name: Decode keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.jks
-
-      - name: Create key.properties
-        run: |
-          cat > android/key.properties <<EOF
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=release.jks
-          EOF
-
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build Debug APK
+        run: flutter build apk --debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: notify-ai-v1.0.${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: notify-ai-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 30
