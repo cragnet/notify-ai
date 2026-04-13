@@ -26,8 +26,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
+            android:launchMode="singleTask"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -41,11 +40,11 @@
             </intent-filter>
         </activity>
 
-        <!-- NotificationListenerService - NO foregroundServiceType, NO filter_types restriction -->
         <service
             android:name=".NotificationService"
             android:label="Notify AI"
             android:exported="true"
+            android:stopWithTask="false"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

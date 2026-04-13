@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/permissions_service.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
 import 'stats_screen.dart';
@@ -11,8 +12,9 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
+  bool _listenerMissing = false;
 
   static const _screens = [
     HomeScreen(),
@@ -22,11 +24,66 @@ class _MainShellState extends State<MainShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkListener();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkListener();
+  }
+
+  Future<void> _checkListener() async {
+    final ok = await PermissionsService.isNotificationListenerEnabled();
+    if (mounted) setState(() => _listenerMissing = !ok);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: _screens,
+      body: Column(
+        children: [
+          if (_listenerMissing)
+            Material(
+              color: Colors.red.shade900,
+              child: InkWell(
+                onTap: () async {
+                  await PermissionsService.openNotificationListenerSettings();
+                  await _checkListener();
+                },
+                child: const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 40, 16, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Notification access is off — tap to fix',
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: Colors.white54, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _index,
+              children: _screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: const Color(0xFF1A1A1A),

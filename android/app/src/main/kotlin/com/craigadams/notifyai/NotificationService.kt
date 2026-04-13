@@ -97,6 +97,11 @@ class NotificationService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         log("success", "=== Listener CONNECTED ===")
+
+        // Dump raw pref value so we can verify spList parsing
+        val rawApps = sp().getString("flutter.enabled_apps_set", null)
+        log("info", "raw enabled_apps_set: ${rawApps?.take(120) ?: "(null)"}")
+
         val selected = spList("enabled_apps_set")
         if (selected.isEmpty()) {
             log("warn", "No apps selected — go to Per-app settings")
