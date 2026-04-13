@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/provider_config.dart';
@@ -111,9 +112,27 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                     obscureText: _obscure,
                     decoration: InputDecoration(
                       hintText: cfg?.keyHint ?? 'Enter API key',
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 20),
-                        onPressed: () => setState(() => _obscure = !_obscure),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_keyCtrl.text.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.copy, color: Colors.white38, size: 18),
+                              tooltip: 'Copy API key',
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: _keyCtrl.text));
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                  content: Text('API key copied to clipboard'),
+                                  backgroundColor: Color(0xFF4A7A56),
+                                  duration: Duration(seconds: 2),
+                                ));
+                              },
+                            ),
+                          IconButton(
+                            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, color: Colors.white38, size: 20),
+                            onPressed: () => setState(() => _obscure = !_obscure),
+                          ),
+                        ],
                       ),
                     ),
                     onChanged: (_) => setState(() => _saved = false),

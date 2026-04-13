@@ -102,7 +102,8 @@ class NotificationService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        log("warn", "Listener DISCONNECTED")
+        log("warn", "Listener DISCONNECTED — requesting rebind")
+        postStatusNotification("Notify AI reconnecting…", "Service was disconnected — reconnecting automatically")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(android.content.ComponentName(this, NotificationService::class.java))
         }
@@ -123,9 +124,17 @@ class NotificationService : NotificationListenerService() {
         if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
         val extras = sbn.notification.extras
-        val title = extras.getString(Notification.EXTRA_TITLE) ?: run { log("warn", "No title"); return }
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: run { log("warn", "No text"); return }
-        if (text.length < 3) { log("warn", "Text too short"); return }
+        val title = extras.getString(Notification.EXTRA_TITLE)
+            ?: extras.getString(Notification.EXTRA_CONVERSATION_TITLE)
+            ?: run { log("warn", "No title"); return }
+
+        // Extract text: try EXTRA_TEXT, EXTRA_BIG_TEXT, then MessagingStyle messages
+        val text: String = run {
+            extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
+                ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
+                ?: extractMessagingText(extras)
+                ?: run { log("warn", "No usable text"); return }
+        }
 
         val name = appName(pkg)
         val image = extractImage(sbn.notification)
@@ -187,16 +196,16 @@ class NotificationService : NotificationListenerService() {
         val baseUrl = spStr("base_url_$provider", "")
         val length  = spInt("summary_length", 2)
 
-        log("info", "AI: provider=$provider model=$model baseUrl=$baseUrl hasKey=${apiKey.isNotEmpty()}")
+        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${buf.size}")
 
         if (model.isEmpty() && provider != "gemini_nano") {
-            log("error", "No model set for $provider — configure in AI Provider settings"); return null
+            log("error", "AI SKIP: no model set for $provider — configure in AI Provider settings"); return null
         }
         if (provider == "ollama" && baseUrl.isEmpty()) {
-            log("error", "No URL set for Ollama — configure in AI Provider settings"); return null
+            log("error", "AI SKIP: no URL set for Ollama — configure in AI Provider settings"); return null
         }
         if (provider == "gemini" && apiKey.isEmpty()) {
-            log("error", "No API key set for Gemini — configure in AI Provider settings"); return null
+            log("error", "AI SKIP: no API key set for Gemini — configure in AI Provider settings"); return null
         }
 
         val hint = when (length) {
@@ -246,13 +255,15 @@ class NotificationService : NotificationListenerService() {
 
         conn.outputStream.writer().use { it.write(body) }
         val code = conn.responseCode
-        log("info", "Ollama response: $code")
-
         if (code == 200) {
-            val json = JSONObject(conn.inputStream.reader().readText())
-            return json.getString("response").trim()
+            val responseText = conn.inputStream.reader().readText()
+            val json = JSONObject(responseText)
+            val result = json.getString("response").trim()
+            log("success", "Ollama response OK — ${result.length} chars")
+            return result
         }
-        log("error", "Ollama error $code: ${conn.errorStream?.reader()?.readText()?.take(200)}")
+        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+        log("error", "Ollama HTTP $code: $errBody")
         return null
     }
 
@@ -290,18 +301,19 @@ class NotificationService : NotificationListenerService() {
         val conn = openConn(URL(endpoint), mapOf("Content-Type" to "application/json"))
         conn.outputStream.writer().use { it.write(body) }
         val code = conn.responseCode
-        log("info", "Gemini response: $code")
-
         if (code == 200) {
             val json = JSONObject(conn.inputStream.reader().readText())
-            return json.getJSONArray("candidates")
+            val result = json.getJSONArray("candidates")
                 .getJSONObject(0)
                 .getJSONObject("content")
                 .getJSONArray("parts")
                 .getJSONObject(0)
                 .getString("text").trim()
+            log("success", "Gemini response OK — ${result.length} chars")
+            return result
         }
-        log("error", "Gemini error $code: ${conn.errorStream?.reader()?.readText()?.take(200)}")
+        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+        log("error", "Gemini HTTP $code: $errBody")
         return null
     }
 
@@ -367,15 +379,34 @@ class NotificationService : NotificationListenerService() {
             val channelId = "notify_ai_status"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 nm.createNotificationChannel(NotificationChannel(channelId,
-                    "Notify AI Status", NotificationManager.IMPORTANCE_DEFAULT))
+                    "Notify AI Status", NotificationManager.IMPORTANCE_LOW))
             }
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 Notification.Builder(this, channelId)
             else @Suppress("DEPRECATION") Notification.Builder(this)
             builder.setContentTitle(title).setContentText(text)
-                .setSmallIcon(android.R.drawable.ic_dialog_info).setAutoCancel(true)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOngoing(true)   // persistent — prevents Android killing the service
+                .setAutoCancel(false)
             nm.notify("status".hashCode(), builder.build())
         } catch (e: Exception) { log("warn", "Status notification failed: ${e.message}") }
+    }
+
+    // ── MessagingStyle text extraction ────────────────────────────────────────
+
+    private fun extractMessagingText(extras: android.os.Bundle): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
+        return try {
+            @Suppress("DEPRECATION")
+            val msgs = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return null
+            val texts = msgs.mapNotNull { m ->
+                try {
+                    (m as? android.os.Bundle)?.getCharSequence("text")?.toString()
+                        ?.takeIf { it.length >= 3 }
+                } catch (_: Exception) { null }
+            }
+            if (texts.isEmpty()) null else texts.takeLast(5).joinToString(" | ")
+        } catch (_: Exception) { null }
     }
 
     // ── Image extraction ───────────────────────────────────────────────────────

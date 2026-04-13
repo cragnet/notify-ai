@@ -26,21 +26,18 @@ class _LogScreenState extends State<LogScreen> {
   List<LogEntry> _entries = [];
   bool _loading = true;
   String _filter = 'all';
-
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showSpinner: true);
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool showSpinner = false}) async {
+    if (showSpinner && mounted) setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
-    // The native service writes WITHOUT flutter. prefix directly to FlutterSharedPreferences
-    // Flutter prefs plugin adds flutter. prefix, so we read 'service_log' which
-    // maps to 'flutter.service_log' in the XML file — matching what the service writes
-    // BUT the service writes key 'service_log' (no prefix) so we need to read it raw
-    // We use the raw key the service uses: 'service_log'
+    // Reload from disk — the native service writes directly to SharedPreferences
+    // and Flutter's in-memory cache won't see updates without reload()
+    await prefs.reload();
     final raw = prefs.getString('service_log') ?? '[]';
     try {
       final list = (jsonDecode(raw) as List)
@@ -51,6 +48,8 @@ class _LogScreenState extends State<LogScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+
 
   Future<void> _clear() async {
     final confirmed = await showDialog<bool>(
@@ -84,7 +83,7 @@ class _LogScreenState extends State<LogScreen> {
       appBar: AppBar(
         title: const Text('Service Log'),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: () => _load(showSpinner: true)),
           IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white54),
               onPressed: _clear),

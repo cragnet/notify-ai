@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -29,6 +31,14 @@ class PermissionsService {
       return (result as List).map((e) => Map<String, String>.from(e as Map)).toList();
     } catch (_) { return []; }
   }
+  static Future<Uint8List?> getAppIcon(String packageName) async {
+    try {
+      final result = await _ch.invokeMethod('getAppIcon', {'packageName': packageName});
+      if (result == null) return null;
+      return base64Decode(result as String);
+    } catch (_) { return null; }
+  }
+
   static Future<bool> isGeminiNanoAvailable() async {
     try { return await _ch.invokeMethod('isGeminiNanoAvailable') ?? false; } catch (_) { return false; }
   }

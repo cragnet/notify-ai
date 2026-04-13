@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
@@ -16,6 +17,9 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
   String _error = '';
   String _search = '';
   final _searchCtrl = TextEditingController();
+
+  // Icon cache — shared across all list items, persists across rebuilds
+  static final Map<String, Future<Uint8List?>> _iconCache = {};
 
   @override
   void initState() {
@@ -245,7 +249,14 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                                       horizontal: 16, vertical: 6),
                                   child: Row(
                                     children: [
-                                      _AppAvatar(pkg, name),
+                                      _AppIcon(
+                                        packageName: pkg,
+                                        appName: name,
+                                        iconFuture: _iconCache.putIfAbsent(
+                                          pkg,
+                                          () => PermissionsService.getAppIcon(pkg),
+                                        ),
+                                      ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
@@ -280,35 +291,54 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
   }
 }
 
-class _AppAvatar extends StatelessWidget {
+class _AppIcon extends StatelessWidget {
   final String packageName;
   final String appName;
-  const _AppAvatar(this.packageName, this.appName);
+  final Future<Uint8List?> iconFuture;
+
+  const _AppIcon({
+    required this.packageName,
+    required this.appName,
+    required this.iconFuture,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final letter = appName.isNotEmpty ? appName[0].toUpperCase() : '?';
-    const colors = [
-      Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFF9C27B0),
-      Color(0xFFFF5722), Color(0xFF00BCD4), Color(0xFFFF9800),
-      Color(0xFF607D8B), Color(0xFFE91E63), Color(0xFF795548),
-      Color(0xFF3F51B5), Color(0xFF009688), Color(0xFFCDDC39),
-    ];
-    final color = colors[packageName.hashCode.abs() % colors.length];
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Center(
-        child: Text(letter,
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 17)),
-      ),
+    return FutureBuilder<Uint8List?>(
+      future: iconFuture,
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.done &&
+            snap.hasData && snap.data != null) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.memory(snap.data!, width: 42, height: 42, fit: BoxFit.cover),
+          );
+        }
+        // Fallback: coloured letter avatar while loading or if icon unavailable
+        final letter = appName.isNotEmpty ? appName[0].toUpperCase() : '?';
+        const colors = [
+          Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFF9C27B0),
+          Color(0xFFFF5722), Color(0xFF00BCD4), Color(0xFFFF9800),
+          Color(0xFF607D8B), Color(0xFFE91E63), Color(0xFF795548),
+          Color(0xFF3F51B5), Color(0xFF009688), Color(0xFFCDDC39),
+        ];
+        final color = colors[packageName.hashCode.abs() % colors.length];
+        return Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: Text(letter,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 17)),
+          ),
+        );
+      },
     );
   }
 }

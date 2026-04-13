@@ -3,14 +3,19 @@ package com.craigadams.notifyai
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.craigadams.notifyai/permissions"
@@ -46,6 +51,12 @@ class MainActivity : FlutterActivity() {
 
                 "getInstalledApps" ->
                     result.success(getInstalledApps())
+
+                "getAppIcon" -> {
+                    val pkg = call.argument<String>("packageName")
+                    if (pkg != null) result.success(getAppIcon(pkg))
+                    else result.error("INVALID_ARG", "packageName required", null)
+                }
 
                 "isGeminiNanoAvailable" ->
                     result.success(isGeminiNanoAvailable())
@@ -151,6 +162,30 @@ class MainActivity : FlutterActivity() {
         return appMap.entries
             .map { mapOf("packageName" to it.key, "appName" to it.value) }
             .sortedBy { it["appName"]?.lowercase() }
+    }
+
+    private fun getAppIcon(packageName: String): String? {
+        return try {
+            val drawable = packageManager.getApplicationIcon(packageName)
+            val size = 48
+            val bitmap = if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                drawable.bitmap
+            } else {
+                val bmp = Bitmap.createBitmap(
+                    drawable.intrinsicWidth.coerceAtLeast(1),
+                    drawable.intrinsicHeight.coerceAtLeast(1),
+                    Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bmp)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bmp
+            }
+            val scaled = Bitmap.createScaledBitmap(bitmap, size, size, true)
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.PNG, 90, out)
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Exception) { null }
     }
 
     private fun isGeminiNanoAvailable(): Boolean {
