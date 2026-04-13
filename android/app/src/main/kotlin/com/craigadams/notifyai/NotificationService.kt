@@ -66,12 +66,22 @@ class NotificationService : NotificationListenerService() {
     private fun spStr(key: String, def: String): String =
         sp().getString("flutter.$key", def) ?: def
 
-    // Flutter stores StringList with prefix VGhpcyB...! before the JSON array
+    // Flutter encodes StringList as LIST_IDENTIFIER + jsonArray (no separator)
+    // LIST_IDENTIFIER = base64("This is the prefix for a string list")
     private fun spList(key: String): List<String> {
         val sp = sp()
         val raw = sp.getString("flutter.$key", null) ?: return emptyList()
         return try {
-            val jsonStr = if (raw.contains("!")) raw.substringAfter("!") else raw
+            val LIST_IDENTIFIER = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIHN0cmluZyBsaXN0"
+            val jsonStr = when {
+                raw.startsWith("[") -> raw                          // plain JSON array
+                raw.contains("!") -> raw.substringAfter("!")        // legacy format
+                raw.startsWith(LIST_IDENTIFIER) -> raw.substring(LIST_IDENTIFIER.length) // current format
+                else -> {
+                    log("warn", "spList[$key] unrecognised format: ${raw.take(80)}")
+                    return emptyList()
+                }
+            }
             val arr = JSONArray(jsonStr)
             val result = (0 until arr.length()).map { arr.getString(it) }
             log("info", "spList[$key] = ${result.size} entries: $result")
@@ -332,13 +342,17 @@ class NotificationService : NotificationListenerService() {
                             actions: List<Notification.Action>, count: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val groupId = "notify_ai_group_$pkg"
-        val channelId = "notify_ai_$pkg"
+        val channelId = "notify_ai_v2_$pkg"   // v2 = HIGH importance; v1 channels were DEFAULT
         val name = appName(pkg)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannelGroup(NotificationChannelGroup(groupId, name))
             val ch = NotificationChannel(channelId, "$name Summaries",
-                NotificationManager.IMPORTANCE_DEFAULT).apply { group = groupId }
+                NotificationManager.IMPORTANCE_HIGH).apply {
+                group = groupId
+                enableVibration(true)
+                setShowBadge(true)
+            }
             nm.createNotificationChannel(ch)
         }
 

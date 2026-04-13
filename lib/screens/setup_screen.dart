@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/permissions_service.dart';
-import 'main_shell.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -120,14 +119,10 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                         GestureDetector(
                           onTap: _canContinue
                               ? () async {
-                                  final settings = context.read<SettingsProvider>();
-                                  await settings.completeSetup();
-                                  if (context.mounted) {
-                                    Navigator.pushReplacement(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => const MainShell()),
-                                    );
-                                  }
+                                  // completeSetup() sets setupComplete=true and calls
+                                  // notifyListeners() — _AppEntry reacts and swaps to
+                                  // MainShell automatically. No Navigator push needed.
+                                  await context.read<SettingsProvider>().completeSetup();
                                 }
                               : null,
                           child: AnimatedContainer(

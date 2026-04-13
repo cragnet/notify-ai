@@ -11,7 +11,7 @@ class SettingsProvider extends ChangeNotifier {
   bool setupComplete = false;
   bool serviceEnabled = true;
 
-  String aiProvider = 'claude';
+  String aiProvider = 'ollama';
   Map<String, String> providerModels = {};
   Map<String, String> providerBaseUrls = {};
   Map<String, String> apiKeys = {};
@@ -27,7 +27,7 @@ class SettingsProvider extends ChangeNotifier {
     _prefs = await SharedPreferences.getInstance();
     setupComplete = _prefs.getBool('setup_complete') ?? false;
     serviceEnabled = _prefs.getBool('service_enabled') ?? true;
-    aiProvider = _prefs.getString('ai_provider') ?? 'claude';
+    aiProvider = _prefs.getString('ai_provider') ?? 'ollama';
     summaryLength = _prefs.getInt('summary_length') ?? 2;
     notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
