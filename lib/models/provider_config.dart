@@ -4,7 +4,7 @@ class ProviderConfig {
   final String defaultModel;
   final String defaultBaseUrl;
   final bool needsApiKey;
-  final bool apiKeyOptional; // key is optional (e.g. local servers)
+  final bool apiKeyOptional;
   final bool needsBaseUrl;
   final String modelHint;
   final String urlHint;
@@ -26,37 +26,16 @@ class ProviderConfig {
 
 const kProviders = [
   ProviderConfig(
-    id: 'claude',
-    displayName: 'Claude (Anthropic)',
-    defaultModel: 'claude-haiku-4-5-20251001',
-    defaultBaseUrl: 'https://api.anthropic.com',
-    needsApiKey: true,
+    id: 'ollama',
+    displayName: 'Ollama',
+    defaultModel: '',
+    defaultBaseUrl: '',
+    needsApiKey: false,
+    apiKeyOptional: true,
     needsBaseUrl: true,
-    modelHint: 'e.g. claude-haiku-4-5-20251001',
-    urlHint: 'https://api.anthropic.com',
-    keyHint: 'sk-ant-...',
-  ),
-  ProviderConfig(
-    id: 'openai',
-    displayName: 'OpenAI',
-    defaultModel: 'gpt-4o-mini',
-    defaultBaseUrl: 'https://api.openai.com',
-    needsApiKey: true,
-    needsBaseUrl: true,
-    modelHint: 'e.g. gpt-4o-mini',
-    urlHint: 'https://api.openai.com',
-    keyHint: 'sk-...',
-  ),
-  ProviderConfig(
-    id: 'openrouter',
-    displayName: 'OpenRouter',
-    defaultModel: 'anthropic/claude-haiku-4-5',
-    defaultBaseUrl: 'https://openrouter.ai',
-    needsApiKey: true,
-    needsBaseUrl: false,
-    modelHint: 'e.g. anthropic/claude-haiku-4-5',
-    urlHint: 'https://openrouter.ai',
-    keyHint: 'sk-or-...',
+    modelHint: 'e.g. llama3.2:3b or qwen2.5:1.5b',
+    urlHint: 'http://192.168.1.x:11434',
+    keyHint: 'Optional — leave blank if not required',
   ),
   ProviderConfig(
     id: 'gemini',
@@ -65,33 +44,9 @@ const kProviders = [
     defaultBaseUrl: '',
     needsApiKey: true,
     needsBaseUrl: false,
-    modelHint: 'e.g. gemini-2.0-flash',
+    modelHint: 'e.g. gemini-2.0-flash or gemini-1.5-flash',
     urlHint: '',
     keyHint: 'AIza...',
-  ),
-  ProviderConfig(
-    id: 'ollama',
-    displayName: 'Ollama',
-    defaultModel: 'llama3.2:3b',
-    defaultBaseUrl: 'https://your-ollama-cloud-url.com',
-    needsApiKey: false,
-    apiKeyOptional: true,
-    needsBaseUrl: true,
-    modelHint: 'e.g. llama3.2:3b',
-    urlHint: 'https://your-ollama-cloud-url.com',
-    keyHint: 'Optional — leave blank if not required',
-  ),
-  ProviderConfig(
-    id: 'local',
-    displayName: 'Local / Custom',
-    defaultModel: '',
-    defaultBaseUrl: 'http://192.168.1.x:11434',
-    needsApiKey: false,
-    apiKeyOptional: true,
-    needsBaseUrl: true,
-    modelHint: 'Enter model name exactly as it appears',
-    urlHint: 'http://192.168.1.x:port',
-    keyHint: 'Optional — leave blank if not required',
   ),
   ProviderConfig(
     id: 'gemini_nano',

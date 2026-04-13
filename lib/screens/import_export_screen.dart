@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import '../providers/settings_provider.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -19,19 +19,11 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
   bool _importing = false;
   String? _statusMessage;
   bool _statusSuccess = true;
-  final _importCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _importCtrl.dispose();
-    super.dispose();
-  }
 
   Future<void> _export() async {
     setState(() { _exporting = true; _statusMessage = null; });
     try {
       final settings = context.read<SettingsProvider>();
-
       final export = {
         'version': 1,
         'exported_at': DateTime.now().toIso8601String(),
@@ -46,54 +38,62 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         'provider_models': settings.providerModels,
         'provider_base_urls': settings.providerBaseUrls,
         'enabled_apps': settings.enabledApps.toList()..sort(),
-        'note': 'API keys are not exported for security. Re-enter them after importing.',
+        'note': 'API keys are not exported for security.',
       };
 
       final json = const JsonEncoder.withIndent('  ').convert(export);
-
-      // Write to file
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/notify_ai_settings.json');
       await file.writeAsString(json);
 
-      // Share the file
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/json')],
         subject: 'Notify AI Settings Export',
-        text: 'Notify AI settings exported ${DateTime.now().toString().substring(0, 16)}',
       );
 
       setState(() {
         _exporting = false;
-        _statusMessage = 'Export file shared — save it somewhere safe';
+        _statusMessage = 'Export shared — save the file somewhere safe';
         _statusSuccess = true;
       });
     } catch (e) {
-      setState(() {
-        _exporting = false;
-        _statusMessage = 'Export failed: $e';
-        _statusSuccess = false;
-      });
+      setState(() { _exporting = false; _statusMessage = 'Export failed: $e'; _statusSuccess = false; });
     }
   }
 
-  Future<void> _import() async {
-    final text = _importCtrl.text.trim();
-    if (text.isEmpty) {
-      setState(() {
-        _statusMessage = 'Paste your exported JSON first';
-        _statusSuccess = false;
-      });
-      return;
-    }
-
+  Future<void> _importFromFile() async {
     setState(() { _importing = true; _statusMessage = null; });
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        allowMultiple: false,
+      );
 
+      if (result == null || result.files.isEmpty) {
+        setState(() { _importing = false; _statusMessage = 'No file selected'; _statusSuccess = false; });
+        return;
+      }
+
+      final path = result.files.single.path;
+      if (path == null) {
+        setState(() { _importing = false; _statusMessage = 'Could not read file path'; _statusSuccess = false; });
+        return;
+      }
+
+      final text = await File(path).readAsString();
+      await _applyImport(text);
+    } catch (e) {
+      setState(() { _importing = false; _statusMessage = 'Import failed: $e'; _statusSuccess = false; });
+    }
+  }
+
+  Future<void> _applyImport(String text) async {
     try {
       final settings = context.read<SettingsProvider>();
       final Map<String, dynamic> data = jsonDecode(text);
 
-      if (data['version'] == null) throw Exception('Invalid export file');
+      if (data['version'] == null) throw Exception('Invalid export file — missing version');
 
       final s = data['settings'] as Map<String, dynamic>? ?? {};
       final models = data['provider_models'] as Map<String, dynamic>? ?? {};
@@ -107,27 +107,17 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       if (s['retain_original_actions'] != null) await settings.setRetainOriginalActions(s['retain_original_actions']);
       if (s['service_enabled'] != null) await settings.setServiceEnabled(s['service_enabled']);
 
-      for (final entry in models.entries) {
-        await settings.setModel(entry.key, entry.value.toString());
-      }
-      for (final entry in urls.entries) {
-        await settings.setBaseUrl(entry.key, entry.value.toString());
-      }
-
+      for (final e in models.entries) await settings.setModel(e.key, e.value.toString());
+      for (final e in urls.entries) await settings.setBaseUrl(e.key, e.value.toString());
       await settings.setEnabledApps(apps.toSet());
 
       setState(() {
         _importing = false;
         _statusMessage = 'Import successful — ${apps.length} apps restored. Re-enter your API keys.';
         _statusSuccess = true;
-        _importCtrl.clear();
       });
     } catch (e) {
-      setState(() {
-        _importing = false;
-        _statusMessage = 'Import failed: $e';
-        _statusSuccess = false;
-      });
+      setState(() { _importing = false; _statusMessage = 'Import failed: $e'; _statusSuccess = false; });
     }
   }
 
@@ -136,10 +126,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Import / Export'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -157,18 +144,11 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      _statusSuccess ? Icons.check_circle : Icons.error_outline,
-                      color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent,
-                      size: 18,
-                    ),
+                    Icon(_statusSuccess ? Icons.check_circle : Icons.error_outline,
+                        color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent, size: 18),
                     const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(_statusMessage!,
-                          style: TextStyle(
-                              color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent,
-                              fontSize: 13)),
-                    ),
+                    Expanded(child: Text(_statusMessage!,
+                        style: TextStyle(color: _statusSuccess ? const Color(0xFF6B9E78) : Colors.redAccent, fontSize: 13))),
                   ],
                 ),
               ),
@@ -176,76 +156,41 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
             ],
 
             _Label('Export settings'),
-            Container(
-              decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(16)),
+            _Card(child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Exports all settings, provider config, and selected apps to a JSON file. API keys are not included for security.',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _exporting ? null : _export,
-                      icon: _exporting
-                          ? const SizedBox(width: 16, height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.share_outlined),
-                      label: Text(_exporting ? 'Exporting...' : 'Export to file'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Exports all settings, provider config, and selected apps to a JSON file. API keys are not included.',
+                    style: TextStyle(color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 16),
+                SizedBox(width: double.infinity, child: ElevatedButton.icon(
+                  onPressed: _exporting ? null : _export,
+                  icon: _exporting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.share_outlined),
+                  label: Text(_exporting ? 'Exporting...' : 'Export to file'),
+                )),
+              ]),
+            )),
 
             const SizedBox(height: 16),
 
             _Label('Import settings'),
-            Container(
-              decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(16)),
+            _Card(child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Paste the contents of a previously exported JSON file to restore all settings.',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _importCtrl,
-                    maxLines: 8,
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                    decoration: const InputDecoration(
-                      hintText: 'Paste exported JSON here...',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _importing ? null : _import,
-                      icon: _importing
-                          ? const SizedBox(width: 16, height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.download_outlined),
-                      label: Text(_importing ? 'Importing...' : 'Import settings'),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2A4A7A)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Select a previously exported JSON file to restore all settings. You will need to re-enter your API keys afterwards.',
+                    style: TextStyle(color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 16),
+                SizedBox(width: double.infinity, child: ElevatedButton.icon(
+                  onPressed: _importing ? null : _importFromFile,
+                  icon: _importing
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.folder_open_outlined),
+                  label: Text(_importing ? 'Importing...' : 'Select file to import'),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2A4A7A)),
+                )),
+              ]),
+            )),
             const SizedBox(height: 32),
           ],
         ),
@@ -259,10 +204,18 @@ class _Label extends StatelessWidget {
   const _Label(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
-        child: Text(text,
-            style: const TextStyle(
-                color: Color(0xFF6B9E78), fontSize: 13,
-                fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-      );
+    padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
+    child: Text(text, style: const TextStyle(color: Color(0xFF6B9E78), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+  );
+}
+
+class _Card extends StatelessWidget {
+  final Widget child;
+  const _Card({required this.child});
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(16)),
+    clipBehavior: Clip.hardEdge,
+    child: child,
+  );
 }

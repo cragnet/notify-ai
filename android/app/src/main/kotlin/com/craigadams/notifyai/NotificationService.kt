@@ -45,55 +45,39 @@ class NotificationService : NotificationListenerService() {
     private val DEBOUNCE_MS = 4000L
 
     // ── SharedPreferences ──────────────────────────────────────────────────────
-    // Flutter SharedPreferences stores keys with "flutter." prefix
-    // Booleans/ints stored as native types in flutter_shared_preferences v2+
-
     private fun sp() = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
     private fun spBool(key: String, def: Boolean): Boolean {
-        val sp = sp()
-        // Try native bool first, then string fallback
         return try {
-            if (sp.contains("flutter.$key")) sp.getBoolean("flutter.$key", def) else def
+            sp().getBoolean("flutter.$key", def)
         } catch (e: ClassCastException) {
-            sp.getString("flutter.$key", null)?.equals("true") ?: def
+            sp().getString("flutter.$key", null)?.equals("true") ?: def
         }
     }
 
     private fun spInt(key: String, def: Int): Int {
-        val sp = sp()
         return try {
-            if (sp.contains("flutter.$key")) sp.getInt("flutter.$key", def) else def
+            sp().getInt("flutter.$key", def)
         } catch (e: ClassCastException) {
-            sp.getString("flutter.$key", null)?.toIntOrNull() ?: def
+            sp().getString("flutter.$key", null)?.toIntOrNull() ?: def
         }
     }
 
     private fun spStr(key: String, def: String): String =
         sp().getString("flutter.$key", def) ?: def
 
-    // Flutter stores StringList with a special prefix marker then a JSON array
-    // The prefix is: VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu (base64 of "This is the prefix for a list.")
-    // followed by ! and then the JSON array e.g. VGhpcyB...!["pkg1","pkg2"]
+    // Flutter stores StringList with prefix VGhpcyB...! before the JSON array
     private fun spList(key: String): List<String> {
         val sp = sp()
-        // Try both key variants — Flutter may store under either name
-        val raw = sp.getString("flutter.$key", null)
-            ?: sp.getString("flutter.${key.removeSuffix("_set")}", null)
-            ?: sp.getString("flutter.${key}_set", null)
-            ?: return emptyList()
-
-        log("info", "spList[$key] raw=${raw.take(120)}")
-
+        val raw = sp.getString("flutter.$key", null) ?: return emptyList()
         return try {
-            // Strip Flutter list prefix if present (everything up to and including the ! separator)
             val jsonStr = if (raw.contains("!")) raw.substringAfter("!") else raw
             val arr = JSONArray(jsonStr)
             val result = (0 until arr.length()).map { arr.getString(it) }
-            log("info", "spList[$key] parsed ${result.size} entries: $result")
+            log("info", "spList[$key] = ${result.size} entries: $result")
             result
         } catch (e: Exception) {
-            log("warn", "spList[$key] parse failed: ${e.message} raw=${raw.take(100)}")
+            log("warn", "spList[$key] parse failed: ${e.message} raw=${raw.take(80)}")
             emptyList()
         }
     }
@@ -103,38 +87,24 @@ class NotificationService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         log("success", "=== Listener CONNECTED ===")
-
-        val sp = sp()
-        val allKeys = sp.all.keys.filter { it.startsWith("flutter.") }.sorted()
-        log("info", "SharedPrefs has ${allKeys.size} flutter.* keys")
-        allKeys.forEach { key ->
-            val shortKey = key.removePrefix("flutter.")
-            val value = sp.all[key]?.toString()?.take(80) ?: "null"
-            log("info", "  $shortKey = $value")
-        }
-
         val selected = spList("enabled_apps_set")
         if (selected.isEmpty()) {
-            log("warn", "No apps selected — go to Per-app settings and select apps to monitor")
+            log("warn", "No apps selected — go to Per-app settings")
             postStatusNotification("Notify AI running — action needed",
-                "No apps selected. Open app → Per-app settings to choose apps.")
+                "No apps selected. Open app → Per-app settings.")
         } else {
             log("success", "Monitoring ${selected.size} app(s):")
-            selected.forEach { pkg ->
-                val name = appName(pkg)
-                log("success", "  ✓ $name ($pkg)")
-            }
+            selected.forEach { pkg -> log("success", "  ✓ ${appName(pkg)} ($pkg)") }
             postStatusNotification("Notify AI running",
-                "Monitoring ${selected.size} app(s): ${selected.take(3).joinToString(", ") { appName(it) }}${if (selected.size > 3) "..." else ""}")
+                "Monitoring ${selected.size} app(s)")
         }
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        log("warn", "=== Listener DISCONNECTED — system killed it ===")
+        log("warn", "Listener DISCONNECTED")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(android.content.ComponentName(this, NotificationService::class.java))
-            log("info", "Requested rebind")
         }
     }
 
@@ -142,49 +112,27 @@ class NotificationService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
-
-        // Skip our own notifications silently
         if (pkg == applicationContext.packageName) return
 
-        log("info", "--- Notification received from: $pkg ---")
+        log("info", "--- Notification from: $pkg ---")
 
-        // Check service enabled
-        val enabled = spBool("service_enabled", true)
-        log("info", "service_enabled=$enabled")
-        if (!enabled) {
-            log("info", "Service is disabled — skipping")
-            return
-        }
+        if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
 
-        // Check selected apps
         val selected = spList("enabled_apps_set")
-        log("info", "enabled_apps_set has ${selected.size} entries: $selected")
+        if (selected.isEmpty()) { log("warn", "No apps selected"); return }
+        if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
-        if (selected.isEmpty()) {
-            log("warn", "No apps selected — ignoring notification from $pkg")
-            return
-        }
-        if (!selected.contains(pkg)) {
-            log("info", "$pkg not in selected list — ignoring")
-            return
-        }
-
-        // Extract content
         val extras = sbn.notification.extras
-        val title = extras.getString(Notification.EXTRA_TITLE)
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-
-        log("info", "title='$title' text='${text?.take(50)}'")
-
-        if (title == null) { log("warn", "No title — skipping"); return }
-        if (text == null || text.length < 3) { log("warn", "No/short text — skipping"); return }
+        val title = extras.getString(Notification.EXTRA_TITLE) ?: run { log("warn", "No title"); return }
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: run { log("warn", "No text"); return }
+        if (text.length < 3) { log("warn", "Text too short"); return }
 
         val name = appName(pkg)
         val image = extractImage(sbn.notification)
         val actions = sbn.notification.actions?.toList() ?: emptyList()
 
-        log("info", "appName=$name, hasImage=${image != null}, actions=${actions.size}")
-        log("info", "Buffering notification from $name: \"${title.take(60)}\"")
+        log("info", "INTERCEPTED from $name: title='$title' text='${text.take(60)}'")
+        log("info", "  actions=${actions.size} hasImage=${image != null}")
 
         saveHistory(pkg, name, title, text, image != null)
         recordStat(pkg, intercepted = true, summarised = false)
@@ -194,74 +142,65 @@ class NotificationService : NotificationListenerService() {
 
         val threshold = spInt("notification_threshold", 2)
         val count = buffer[pkg]?.size ?: 0
-        log("info", "Buffer for $name: $count/$threshold")
+        log("info", "Buffer $count/$threshold for $name")
 
         debounce[pkg]?.let { handler.removeCallbacks(it) }
 
         val runnable = Runnable {
             val buf = buffer[pkg]?.toList() ?: return@Runnable
             val thr = spInt("notification_threshold", 2)
-
-            log("info", "Debounce fired for $name — buf=${buf.size} threshold=$thr")
-
-            if (buf.size < thr) {
-                log("info", "Below threshold — waiting for more from $name")
-                return@Runnable
-            }
+            if (buf.size < thr) { log("info", "Below threshold ${buf.size}/$thr"); return@Runnable }
 
             buffer.remove(pkg)
             debounce.remove(pkg)
+            log("info", "Threshold met — processing ${buf.size} from $name")
 
-            log("info", "Threshold met — processing ${buf.size} notification(s) from $name")
-
-            val dismissOriginals = spBool("dismiss_on_app_usage", true)
-            log("info", "dismiss_on_app_usage=$dismissOriginals")
-            if (dismissOriginals) {
+            // Dismiss originals and collect their actions
+            val allActions = buf.flatMap { it.actions }.distinctBy { it.title?.toString() }
+            if (spBool("dismiss_on_app_usage", true)) {
                 buf.forEach { try { cancelNotification(it.sbnKey) } catch (_: Exception) {} }
-                log("info", "Dismissed ${buf.size} original(s)")
+                log("info", "Dismissed ${buf.size} originals from $name, retained ${allActions.size} actions")
             }
 
             executor.execute {
-                log("info", "Starting AI call for $name")
                 val summary = callAI(pkg, buf)
                 if (summary != null) {
-                    val allActions = buf.flatMap { it.actions }.distinctBy { it.title?.toString() }
                     postSummary(pkg, summary, allActions, buf.size)
                     recordStat(pkg, intercepted = false, summarised = true)
                     log("success", "Summary posted for $name: \"${summary.take(100)}\"")
                 } else {
-                    log("error", "AI returned null for $name — check provider/key/model in settings")
+                    log("error", "No summary returned for $name — check provider/key/model settings")
                 }
             }
         }
 
         debounce[pkg] = runnable
         handler.postDelayed(runnable, if (threshold == 1) 1500L else DEBOUNCE_MS)
-        log("info", "Debounce scheduled — will fire in ${if (threshold == 1) 1500 else DEBOUNCE_MS}ms")
     }
 
     // ── AI dispatch ────────────────────────────────────────────────────────────
 
     private fun callAI(pkg: String, buf: List<Buffered>): String? {
-        val provider = spStr("ai_provider", "claude")
-        val apiKey = spStr("api_key_$provider", "")
-        val model = spStr("model_$provider", "")
-        val baseUrl = spStr("base_url_$provider", defaultUrl(provider))
-        val length = spInt("summary_length", 2)
+        val provider = spStr("ai_provider", "ollama")
+        val apiKey  = spStr("api_key_$provider", "")
+        val model   = spStr("model_$provider", "")
+        val baseUrl = spStr("base_url_$provider", "")
+        val length  = spInt("summary_length", 2)
 
-        log("info", "AI config: provider=$provider model=$model baseUrl=$baseUrl hasKey=${apiKey.isNotEmpty()}")
+        log("info", "AI: provider=$provider model=$model baseUrl=$baseUrl hasKey=${apiKey.isNotEmpty()}")
 
-        if (model.isEmpty()) {
-            log("error", "No model configured for $provider — set one in AI Provider settings")
-            return null
+        if (model.isEmpty() && provider != "gemini_nano") {
+            log("error", "No model set for $provider — configure in AI Provider settings"); return null
         }
-        if (provider != "ollama" && provider != "local" && provider != "gemini_nano" && apiKey.isEmpty()) {
-            log("error", "No API key for $provider — set one in AI Provider settings")
-            return null
+        if (provider == "ollama" && baseUrl.isEmpty()) {
+            log("error", "No URL set for Ollama — configure in AI Provider settings"); return null
+        }
+        if (provider == "gemini" && apiKey.isEmpty()) {
+            log("error", "No API key set for Gemini — configure in AI Provider settings"); return null
         }
 
         val hint = when (length) {
-            1 -> "in one very brief sentence (max 10 words)"
+            1 -> "in one very brief sentence"
             3 -> "in 2-3 sentences with key details"
             else -> "in one clear sentence"
         }
@@ -270,179 +209,109 @@ class NotificationService : NotificationListenerService() {
         val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
         val prompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
         val images = buf.mapNotNull { it.imageBase64 }
-        val vision = supportsVision(provider, model)
-
-        log("info", "Calling $provider / $model — ${buf.size} message(s)${if (images.isNotEmpty() && vision) " + ${images.size} image(s)" else ""}")
 
         return try {
-            val result = when (provider) {
-                "claude"     -> callClaude(apiKey, model, prompt, baseUrl, if (vision) images else emptyList())
-                "openai"     -> callOpenAI(apiKey, model, prompt, baseUrl, if (vision) images else emptyList())
-                "openrouter" -> callOpenAI(apiKey, model, prompt, "https://openrouter.ai",
-                    if (vision) images else emptyList(),
-                    extra = mapOf("HTTP-Referer" to "com.craigadams.notifyai"))
-                "gemini"     -> callGemini(apiKey, model, prompt, if (vision) images else emptyList())
-                "ollama"     -> callOllama(baseUrl, model, prompt, apiKey)
-                "local"      -> callOpenAI(apiKey, model, prompt, baseUrl)
-                else         -> { log("error", "Unknown provider: $provider"); null }
+            when (provider) {
+                "ollama"      -> callOllama(baseUrl, model, prompt, apiKey)
+                "gemini"      -> callGemini(apiKey, model, prompt, images)
+                "gemini_nano" -> callGeminiNano(prompt)
+                else -> { log("error", "Unknown provider: $provider"); null }
             }
-            log("info", "AI response: ${result?.take(100) ?: "null"}")
-            result
         } catch (e: Exception) {
             log("error", "AI exception [$provider]: ${e.javaClass.simpleName}: ${e.message}")
             null
         }
     }
 
-    private fun supportsVision(provider: String, model: String) = when (provider) {
-        "claude"     -> true
-        "openai"     -> model.contains("gpt-4")
-        "gemini"     -> true
-        "openrouter" -> model.contains("claude") || model.contains("gpt-4o") || model.contains("gemini")
-        else         -> false
-    }
+    // ── Ollama ─────────────────────────────────────────────────────────────────
+    // POST {baseUrl}/api/generate
+    // { "model": "...", "prompt": "...", "stream": false }
+    // Response: { "response": "..." }
 
-    // ── API implementations ────────────────────────────────────────────────────
+    private fun callOllama(baseUrl: String, model: String, prompt: String, apiKey: String): String? {
+        val endpoint = "${baseUrl.trimEnd('/')}/api/generate"
+        log("info", "Ollama POST $endpoint model=$model")
 
-    private fun callClaude(key: String, model: String, prompt: String,
-                           base: String, images: List<String>): String? {
-        val endpoint = "${base.trimEnd('/')}/v1/messages"
-        log("info", "Claude POST $endpoint")
-        val url = URL(endpoint)
-        val content = JSONArray()
-        images.forEach { b64 ->
-            content.put(JSONObject().apply {
-                put("type", "image")
-                put("source", JSONObject().apply {
-                    put("type", "base64"); put("media_type", "image/jpeg"); put("data", b64)
-                })
-            })
-        }
-        content.put(JSONObject().apply { put("type", "text"); put("text", prompt) })
         val body = JSONObject().apply {
-            put("model", model); put("max_tokens", 150)
-            put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user"); put("content", content)
-            }))
+            put("model", model)
+            put("prompt", prompt)
+            put("stream", false)
         }.toString()
-        val conn = openConn(url, mapOf("x-api-key" to key, "anthropic-version" to "2023-06-01"))
+
+        val conn = openConn(URL(endpoint), emptyMap<String, String>().let {
+            val h = mutableMapOf("Content-Type" to "application/json")
+            if (apiKey.isNotEmpty()) h["Authorization"] = "Bearer $apiKey"
+            h
+        }, readTimeout = 120000)
+
         conn.outputStream.writer().use { it.write(body) }
         val code = conn.responseCode
-        log("info", "Claude response code: $code")
+        log("info", "Ollama response: $code")
+
         if (code == 200) {
-            return JSONObject(conn.inputStream.reader().readText())
-                .getJSONArray("content").getJSONObject(0).getString("text").trim()
+            val json = JSONObject(conn.inputStream.reader().readText())
+            return json.getString("response").trim()
         }
-        val err = conn.errorStream?.reader()?.readText()?.take(300)
-        log("error", "Claude error $code: $err")
+        log("error", "Ollama error $code: ${conn.errorStream?.reader()?.readText()?.take(200)}")
         return null
     }
 
-    private fun callOpenAI(key: String, model: String, prompt: String, base: String,
-                           images: List<String> = emptyList(),
-                           extra: Map<String, String> = emptyMap()): String? {
-        val endpoint = "${base.trimEnd('/')}/v1/chat/completions"
-        log("info", "OpenAI-compat POST $endpoint")
-        val url = URL(endpoint)
-        val msgContent: Any = if (images.isEmpty()) prompt else {
-            JSONArray().apply {
-                images.forEach { b64 ->
-                    put(JSONObject().apply {
-                        put("type", "image_url")
-                        put("image_url", JSONObject().apply { put("url", "data:image/jpeg;base64,$b64") })
-                    })
-                }
-                put(JSONObject().apply { put("type", "text"); put("text", prompt) })
-            }
-        }
-        val body = JSONObject().apply {
-            put("model", model); put("max_tokens", 150)
-            put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user"); put("content", msgContent)
-            }))
-        }.toString()
-        val headers = mutableMapOf<String, String>()
-        if (key.isNotEmpty()) headers["Authorization"] = "Bearer $key"
-        headers.putAll(extra)
-        val conn = openConn(url, headers)
-        conn.outputStream.writer().use { it.write(body) }
-        val code = conn.responseCode
-        log("info", "OpenAI-compat response code: $code")
-        if (code == 200) {
-            return JSONObject(conn.inputStream.reader().readText())
-                .getJSONArray("choices").getJSONObject(0)
-                .getJSONObject("message").getString("content").trim()
-        }
-        val err = conn.errorStream?.reader()?.readText()?.take(300)
-        log("error", "OpenAI-compat error $code: $err")
-        return null
-    }
+    // ── Gemini ─────────────────────────────────────────────────────────────────
+    // POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}
+    // Body: { "contents": [{ "parts": [{ "text": "..." }] }], "generationConfig": { "maxOutputTokens": 150 } }
+    // Response: { "candidates": [{ "content": { "parts": [{ "text": "..." }] } }] }
 
-    private fun callGemini(key: String, model: String, prompt: String,
-                           images: List<String>): String? {
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
-        log("info", "Gemini POST model=$model")
-        val url = URL(endpoint)
+    private fun callGemini(apiKey: String, model: String, prompt: String, images: List<String>): String? {
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        log("info", "Gemini POST model=$model images=${images.size}")
+
         val parts = JSONArray()
+        // Add images first if present
         images.forEach { b64 ->
             parts.put(JSONObject().apply {
                 put("inline_data", JSONObject().apply {
-                    put("mime_type", "image/jpeg"); put("data", b64)
+                    put("mime_type", "image/jpeg")
+                    put("data", b64)
                 })
             })
         }
         parts.put(JSONObject().apply { put("text", prompt) })
+
         val body = JSONObject().apply {
-            put("contents", JSONArray().put(JSONObject().apply { put("parts", parts) }))
-            put("generationConfig", JSONObject().apply { put("maxOutputTokens", 150) })
+            put("contents", JSONArray().put(JSONObject().apply {
+                put("parts", parts)
+            }))
+            put("generationConfig", JSONObject().apply {
+                put("maxOutputTokens", 150)
+                put("temperature", 0.3)
+            })
         }.toString()
-        val conn = openConn(url, emptyMap())
+
+        val conn = openConn(URL(endpoint), mapOf("Content-Type" to "application/json"))
         conn.outputStream.writer().use { it.write(body) }
         val code = conn.responseCode
-        log("info", "Gemini response code: $code")
+        log("info", "Gemini response: $code")
+
         if (code == 200) {
-            return JSONObject(conn.inputStream.reader().readText())
-                .getJSONArray("candidates").getJSONObject(0)
-                .getJSONObject("content").getJSONArray("parts")
-                .getJSONObject(0).getString("text").trim()
+            val json = JSONObject(conn.inputStream.reader().readText())
+            return json.getJSONArray("candidates")
+                .getJSONObject(0)
+                .getJSONObject("content")
+                .getJSONArray("parts")
+                .getJSONObject(0)
+                .getString("text").trim()
         }
-        val err = conn.errorStream?.reader()?.readText()?.take(300)
-        log("error", "Gemini error $code: $err")
+        log("error", "Gemini error $code: ${conn.errorStream?.reader()?.readText()?.take(200)}")
         return null
     }
 
-    private fun callOllama(base: String, model: String, prompt: String, key: String): String? {
-        if (base.isEmpty()) {
-            log("error", "Ollama: no base URL set — configure it in AI Provider settings")
-            return null
-        }
-        val endpoint = "${base.trimEnd('/')}/api/generate"
-        log("info", "Ollama POST $endpoint model=$model")
-        val url = URL(endpoint)
-        val body = """{"model":"$model","prompt":"${esc(prompt)}","stream":false}"""
-        val headers = if (key.isNotEmpty()) mapOf("Authorization" to "Bearer $key") else emptyMap()
-        val conn = openConn(url, headers, readTimeout = 120000)
-        conn.outputStream.writer().use { it.write(body) }
-        val code = conn.responseCode
-        log("info", "Ollama response code: $code")
-        if (code == 200) {
-            return JSONObject(conn.inputStream.reader().readText()).getString("response").trim()
-        }
-        val err = conn.errorStream?.reader()?.readText()?.take(300)
-        log("error", "Ollama error $code: $err")
-        return null
-    }
+    // ── Gemini Nano ────────────────────────────────────────────────────────────
+    // On-device inference via AICore — requires Pixel 8+ or supported device
+    // Falls back gracefully if not available
 
-    private fun openConn(url: URL, headers: Map<String, String>,
-                         readTimeout: Int = 30000): HttpURLConnection {
-        return (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            headers.forEach { (k, v) -> setRequestProperty(k, v) }
-            connectTimeout = 15000
-            this.readTimeout = readTimeout
-            doOutput = true
-        }
+    private fun callGeminiNano(prompt: String): String? {
+        log("warn", "Gemini Nano on-device inference not yet available in this build — requires AICore SDK integration")
+        return null
     }
 
     // ── Post summary notification ──────────────────────────────────────────────
@@ -453,7 +322,6 @@ class NotificationService : NotificationListenerService() {
         val groupId = "notify_ai_group_$pkg"
         val channelId = "notify_ai_$pkg"
         val name = appName(pkg)
-        log("info", "Posting summary notification for $name")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannelGroup(NotificationChannelGroup(groupId, name))
@@ -467,7 +335,8 @@ class NotificationService : NotificationListenerService() {
         else @Suppress("DEPRECATION") Notification.Builder(this)
 
         val label = if (count > 1) "$count messages · " else ""
-        builder.setContentTitle("$name · AI Summary")
+        builder
+            .setContentTitle("$name · AI Summary")
             .setContentText(summary)
             .setStyle(Notification.BigTextStyle().bigText(summary)
                 .setSummaryText("${label}AI summary"))
@@ -475,14 +344,21 @@ class NotificationService : NotificationListenerService() {
             .setAutoCancel(true)
             .setGroup(groupId)
 
-        val retainActions = spBool("retain_original_actions", true)
-        log("info", "retain_original_actions=$retainActions, available actions=${actions.size}")
-        if (retainActions) {
-            actions.take(3).forEach { try { builder.addAction(it) } catch (_: Exception) {} }
+        // Retain original notification actions (Reply, Mark as read, etc.)
+        if (spBool("retain_original_actions", true)) {
+            log("info", "Attaching ${actions.size} original action(s) to summary")
+            actions.take(3).forEach { action ->
+                try {
+                    builder.addAction(action)
+                    log("info", "  + action: ${action.title}")
+                } catch (e: Exception) {
+                    log("warn", "  Could not attach action '${action.title}': ${e.message}")
+                }
+            }
         }
 
         nm.notify("$pkg:summary".hashCode(), builder.build())
-        log("success", "Summary notification posted successfully for $name")
+        log("success", "Summary notification posted for $name")
     }
 
     private fun postStatusNotification(title: String, text: String) {
@@ -490,9 +366,8 @@ class NotificationService : NotificationListenerService() {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channelId = "notify_ai_status"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val ch = NotificationChannel(channelId, "Notify AI Status",
-                    NotificationManager.IMPORTANCE_DEFAULT)
-                nm.createNotificationChannel(ch)
+                nm.createNotificationChannel(NotificationChannel(channelId,
+                    "Notify AI Status", NotificationManager.IMPORTANCE_DEFAULT))
             }
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 Notification.Builder(this, channelId)
@@ -500,9 +375,7 @@ class NotificationService : NotificationListenerService() {
             builder.setContentTitle(title).setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info).setAutoCancel(true)
             nm.notify("status".hashCode(), builder.build())
-        } catch (e: Exception) {
-            log("warn", "Status notification failed: ${e.message}")
-        }
+        } catch (e: Exception) { log("warn", "Status notification failed: ${e.message}") }
     }
 
     // ── Image extraction ───────────────────────────────────────────────────────
@@ -511,16 +384,16 @@ class NotificationService : NotificationListenerService() {
         return try {
             val extras = n.extras
             val pic = extras.getParcelable<Bitmap>(Notification.EXTRA_PICTURE)
-            if (pic != null) { log("info", "Found EXTRA_PICTURE in notification"); return toBase64(pic) }
+            if (pic != null) return toBase64(pic)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val icon = extras.getParcelable<Icon>(Notification.EXTRA_LARGE_ICON)
                 if (icon != null) {
                     val d = icon.loadDrawable(this)
-                    if (d is BitmapDrawable) { log("info", "Found large icon bitmap"); return toBase64(d.bitmap) }
+                    if (d is BitmapDrawable) return toBase64(d.bitmap)
                 }
             }
             null
-        } catch (e: Exception) { log("warn", "Image extract failed: ${e.message}"); null }
+        } catch (_: Exception) { null }
     }
 
     private fun toBase64(bmp: Bitmap): String? {
@@ -535,10 +408,25 @@ class NotificationService : NotificationListenerService() {
             val out = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) { log("warn", "toBase64 failed: ${e.message}"); null }
+        } catch (_: Exception) { null }
     }
 
-    // ── Logging — writes with flutter. prefix so Flutter reads it back ─────────
+    // ── HTTP helper ────────────────────────────────────────────────────────────
+
+    private fun openConn(url: URL, headers: Map<String, String>,
+                         readTimeout: Int = 30000): HttpURLConnection {
+        return (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            if (!headers.containsKey("Content-Type"))
+                setRequestProperty("Content-Type", "application/json")
+            connectTimeout = 15000
+            this.readTimeout = readTimeout
+            doOutput = true
+        }
+    }
+
+    // ── Logging ────────────────────────────────────────────────────────────────
 
     private fun log(level: String, msg: String) {
         Log.d(TAG, "[$level] $msg")
@@ -606,14 +494,4 @@ class NotificationService : NotificationListenerService() {
     private fun appName(pkg: String) = try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (_: Exception) { pkg.split(".").last().replaceFirstChar { it.uppercase() } }
-
-    private fun defaultUrl(provider: String) = when (provider) {
-        "claude"     -> "https://api.anthropic.com"
-        "openai"     -> "https://api.openai.com"
-        "openrouter" -> "https://openrouter.ai"
-        else         -> ""
-    }
-
-    private fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 }
