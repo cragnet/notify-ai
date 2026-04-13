@@ -17,7 +17,7 @@ class SettingsProvider extends ChangeNotifier {
   Map<String, String> apiKeys = {};
 
   int summaryLength = 2;
-  int notificationThreshold = 1;
+  int notificationThreshold = 2;
   bool dismissOnAppUsage = true;
   bool retainOriginalActions = true;
 
@@ -29,7 +29,7 @@ class SettingsProvider extends ChangeNotifier {
     serviceEnabled = _prefs.getBool('service_enabled') ?? true;
     aiProvider = _prefs.getString('ai_provider') ?? 'ollama';
     summaryLength = _prefs.getInt('summary_length') ?? 2;
-    notificationThreshold = _prefs.getInt('notification_threshold') ?? 1;
+    notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
     retainOriginalActions = _prefs.getBool('retain_original_actions') ?? true;
     enabledApps = (_prefs.getStringList('enabled_apps') ?? []).toSet();

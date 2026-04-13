@@ -189,35 +189,30 @@ class NotificationService : NotificationListenerService() {
         val image = extractImage(sbn.notification)
         val actions = sbn.notification.actions?.toList() ?: emptyList()
 
-        log("info", "INTERCEPTED from $name: title='$title' text='${text.take(60)}'")
-        log("info", "  actions=${actions.size} hasImage=${image != null}")
-
         saveHistory(pkg, name, title, text, image != null)
         recordStat(pkg, intercepted = true, summarised = false)
 
         buffer.getOrPut(pkg) { mutableListOf() }
             .add(Buffered(title, text, actions, sbn.key, image))
 
-        val threshold = spInt("notification_threshold", 1)
+        val threshold = spInt("notification_threshold", 2)
         val count = buffer[pkg]?.size ?: 0
-        log("info", "Buffer $count/$threshold for $name")
+        log("info", "CAPTURED #$count from $name: title='$title' text='${text.take(80)}' threshold=$threshold")
 
+        // Cancel any pending debounce for this app
         debounce[pkg]?.let { handler.removeCallbacks(it) }
 
         val runnable = Runnable {
-            val buf = buffer[pkg]?.toList() ?: return@Runnable
-            val thr = spInt("notification_threshold", 1)
-            if (buf.size < thr) { log("info", "Below threshold ${buf.size}/$thr"); return@Runnable }
-
+            val buf = buffer[pkg]?.toList()
+            if (buf.isNullOrEmpty()) return@Runnable
             buffer.remove(pkg)
             debounce.remove(pkg)
-            log("info", "Threshold met — processing ${buf.size} from $name")
+            log("info", "Processing ${buf.size} notification(s) from $name")
 
-            // Dismiss originals and collect their actions
             val allActions = buf.flatMap { it.actions }.distinctBy { it.title?.toString() }
             if (spBool("dismiss_on_app_usage", true)) {
                 buf.forEach { try { cancelNotification(it.sbnKey) } catch (_: Exception) {} }
-                log("info", "Dismissed ${buf.size} originals from $name, retained ${allActions.size} actions")
+                log("info", "Dismissed ${buf.size} originals, retained ${allActions.size} action(s)")
             }
 
             executor.execute {
@@ -225,15 +220,23 @@ class NotificationService : NotificationListenerService() {
                 if (summary != null) {
                     postSummary(pkg, summary, allActions, buf.size)
                     recordStat(pkg, intercepted = false, summarised = true)
-                    log("success", "Summary posted for $name: \"${summary.take(100)}\"")
+                    log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
                 } else {
-                    log("error", "No summary returned for $name — check provider/key/model settings")
+                    log("error", "No AI summary for $name — check provider/key/model in Settings")
                 }
             }
         }
 
         debounce[pkg] = runnable
-        handler.postDelayed(runnable, if (threshold == 1) 1500L else DEBOUNCE_MS)
+        if (count >= threshold) {
+            // Threshold reached — fire quickly (500ms lets any same-burst duplicates land)
+            handler.postDelayed(runnable, 500L)
+            log("info", "Threshold met ($count >= $threshold) — triggering in 500ms")
+        } else {
+            // Below threshold — wait for quiet window then process whatever arrived
+            handler.postDelayed(runnable, DEBOUNCE_MS)
+            log("info", "Below threshold ($count/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
+        }
     }
 
     // ── AI dispatch ────────────────────────────────────────────────────────────
@@ -273,6 +276,19 @@ class NotificationService : NotificationListenerService() {
                 "ollama"      -> callOllama(baseUrl, model, prompt, apiKey)
                 "gemini"      -> callGemini(apiKey, model, prompt, images)
                 "gemini_nano" -> callGeminiNano(prompt)
+                "claude"      -> {
+                    val url = baseUrl.ifEmpty { "https://api.anthropic.com" }
+                    callClaude(url, apiKey, model, prompt)
+                }
+                "openai"      -> {
+                    val url = baseUrl.ifEmpty { "https://api.openai.com" }
+                    callOpenAI(url, apiKey, model, prompt)
+                }
+                "openrouter"  -> {
+                    val url = baseUrl.ifEmpty { "https://openrouter.ai" }
+                    callOpenAI(url, apiKey, model, prompt)
+                }
+                "local"       -> callOpenAI(baseUrl, apiKey, model, prompt)
                 else -> { log("error", "Unknown provider: $provider"); null }
             }
         } catch (e: Exception) {
@@ -372,6 +388,84 @@ class NotificationService : NotificationListenerService() {
 
     private fun callGeminiNano(prompt: String): String? {
         log("warn", "Gemini Nano on-device inference not yet available in this build — requires AICore SDK integration")
+        return null
+    }
+
+    // ── Claude (Anthropic) ─────────────────────────────────────────────────────
+    // POST {baseUrl}/v1/messages
+    // Headers: x-api-key, anthropic-version: 2023-06-01
+    // Body: { "model": "...", "max_tokens": 150, "messages": [{"role":"user","content":"..."}] }
+    // Response: { "content": [{"type":"text","text":"..."}] }
+
+    private fun callClaude(baseUrl: String, apiKey: String, model: String, prompt: String): String? {
+        val endpoint = "${baseUrl.trimEnd('/')}/v1/messages"
+        log("info", "Claude POST $endpoint model=$model")
+
+        val body = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", 150)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", prompt)
+            }))
+        }.toString()
+
+        val conn = openConn(URL(endpoint), mapOf(
+            "Content-Type" to "application/json",
+            "x-api-key" to apiKey,
+            "anthropic-version" to "2023-06-01"
+        ))
+        conn.outputStream.writer().use { it.write(body) }
+        val code = conn.responseCode
+        if (code == 200) {
+            val json = JSONObject(conn.inputStream.reader().readText())
+            val result = json.getJSONArray("content")
+                .getJSONObject(0)
+                .getString("text").trim()
+            log("success", "Claude response OK — ${result.length} chars")
+            return result
+        }
+        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+        log("error", "Claude HTTP $code: $errBody")
+        return null
+    }
+
+    // ── OpenAI-compatible (OpenAI / OpenRouter / Local) ────────────────────────
+    // POST {baseUrl}/v1/chat/completions
+    // Headers: Authorization: Bearer {apiKey}
+    // Body: { "model": "...", "max_tokens": 150, "messages": [{"role":"user","content":"..."}] }
+    // Response: { "choices": [{"message":{"content":"..."}}] }
+
+    private fun callOpenAI(baseUrl: String, apiKey: String, model: String, prompt: String): String? {
+        val endpoint = "${baseUrl.trimEnd('/')}/v1/chat/completions"
+        log("info", "OpenAI-compat POST $endpoint model=$model")
+
+        val body = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", 150)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", prompt)
+            }))
+        }.toString()
+
+        val headers = mutableMapOf("Content-Type" to "application/json")
+        if (apiKey.isNotEmpty()) headers["Authorization"] = "Bearer $apiKey"
+
+        val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
+        conn.outputStream.writer().use { it.write(body) }
+        val code = conn.responseCode
+        if (code == 200) {
+            val json = JSONObject(conn.inputStream.reader().readText())
+            val result = json.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content").trim()
+            log("success", "OpenAI-compat response OK — ${result.length} chars")
+            return result
+        }
+        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+        log("error", "OpenAI-compat HTTP $code: $errBody")
         return null
     }
 
