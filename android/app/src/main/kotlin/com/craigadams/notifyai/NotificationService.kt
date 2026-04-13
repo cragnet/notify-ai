@@ -42,7 +42,8 @@ class NotificationService : NotificationListenerService() {
 
     private val buffer = mutableMapOf<String, MutableList<Buffered>>()
     private val debounce = mutableMapOf<String, Runnable>()
-    private val DEBOUNCE_MS = 4000L
+    private val DEBOUNCE_MS = 2000L
+    private val STATUS_NOTIF_ID = "notifyai_status".hashCode()
 
     // ── SharedPreferences ──────────────────────────────────────────────────────
     private fun sp() = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
@@ -98,9 +99,12 @@ class NotificationService : NotificationListenerService() {
         super.onListenerConnected()
         log("success", "=== Listener CONNECTED ===")
 
+        // Elevate to foreground service so OS doesn't kill this process
+        startForegroundCompat()
+
         // Dump raw pref value so we can verify spList parsing
         val rawApps = sp().getString("flutter.enabled_apps_set", null)
-        log("info", "raw enabled_apps_set: ${rawApps?.take(120) ?: "(null)"}")
+        log("info", "raw enabled_apps_set: ${rawApps?.take(120) ?: "(null — no apps saved yet)"}")
 
         val selected = spList("enabled_apps_set")
         if (selected.isEmpty()) {
@@ -112,6 +116,28 @@ class NotificationService : NotificationListenerService() {
             selected.forEach { pkg -> log("success", "  ✓ ${appName(pkg)} ($pkg)") }
             postStatusNotification("Notify AI running",
                 "Monitoring ${selected.size} app(s)")
+        }
+    }
+
+    private fun startForegroundCompat() {
+        try {
+            val channelId = "notify_ai_status"
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(NotificationChannel(channelId,
+                    "Notify AI Status", NotificationManager.IMPORTANCE_LOW))
+            }
+            val notif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                Notification.Builder(this, channelId)
+            else @Suppress("DEPRECATION") Notification.Builder(this)
+            notif.setContentTitle("Notify AI")
+                .setContentText("Monitoring notifications")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOngoing(true)
+            startForeground(STATUS_NOTIF_ID, notif.build())
+            log("info", "startForeground called — service protected")
+        } catch (e: Exception) {
+            log("warn", "startForeground failed: ${e.message}")
         }
     }
 
@@ -127,6 +153,14 @@ class NotificationService : NotificationListenerService() {
     // ── onNotificationPosted ───────────────────────────────────────────────────
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        try {
+            handleNotification(sbn)
+        } catch (e: Exception) {
+            log("error", "onNotificationPosted crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    private fun handleNotification(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
@@ -164,7 +198,7 @@ class NotificationService : NotificationListenerService() {
         buffer.getOrPut(pkg) { mutableListOf() }
             .add(Buffered(title, text, actions, sbn.key, image))
 
-        val threshold = spInt("notification_threshold", 2)
+        val threshold = spInt("notification_threshold", 1)
         val count = buffer[pkg]?.size ?: 0
         log("info", "Buffer $count/$threshold for $name")
 
@@ -172,7 +206,7 @@ class NotificationService : NotificationListenerService() {
 
         val runnable = Runnable {
             val buf = buffer[pkg]?.toList() ?: return@Runnable
-            val thr = spInt("notification_threshold", 2)
+            val thr = spInt("notification_threshold", 1)
             if (buf.size < thr) { log("info", "Below threshold ${buf.size}/$thr"); return@Runnable }
 
             buffer.remove(pkg)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/permissions_service.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
@@ -27,7 +28,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _restoreIndex();
     _checkListener();
+  }
+
+  Future<void> _restoreIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt('main_tab_index') ?? 0;
+    if (mounted) setState(() => _index = saved);
+  }
+
+  Future<void> _saveIndex(int i) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('main_tab_index', i);
   }
 
   @override
@@ -89,7 +102,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         backgroundColor: const Color(0xFF1A1A1A),
         indicatorColor: const Color(0xFF2A3A2E),
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) { setState(() => _index = i); _saveIndex(i); },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

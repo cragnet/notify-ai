@@ -49,8 +49,8 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Only notification listener and post notifications are mandatory
-  bool get _canContinue => _notificationListener && _postNotifications;
+  // Notification listener, post notifications, and battery optimisation are mandatory
+  bool get _canContinue => _notificationListener && _postNotifications && _batteryOptimization;
 
   @override
   Widget build(BuildContext context) {
@@ -105,9 +105,9 @@ class _SetupScreenState extends State<SetupScreen> with WidgetsBindingObserver {
                   const SizedBox(height: 20),
                   _PermissionRow(
                     title: 'Disable battery optimisation',
-                    subtitle: 'Recommended — keeps the service alive in background',
+                    subtitle: 'Required — keeps the service alive in background',
                     granted: _batteryOptimization,
-                    required: false,
+                    required: true,
                     onTap: () => PermissionsService.requestIgnoreBatteryOptimization(),
                   ),
 
