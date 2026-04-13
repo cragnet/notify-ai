@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
@@ -134,7 +135,13 @@ class NotificationService : NotificationListenerService() {
                 .setContentText("Monitoring notifications")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setOngoing(true)
-            startForeground(STATUS_NOTIF_ID, notif.build())
+            val built = notif.build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(STATUS_NOTIF_ID, built,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(STATUS_NOTIF_ID, built)
+            }
             log("info", "startForeground called — service protected")
         } catch (e: Exception) {
             log("warn", "startForeground failed: ${e.message}")
@@ -173,14 +180,18 @@ class NotificationService : NotificationListenerService() {
         if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
         val extras = sbn.notification.extras
-        val title = extras.getString(Notification.EXTRA_TITLE)
-            ?: extras.getString(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: run { log("warn", "No title"); return }
+        val title = try {
+            extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+                ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+        } catch (e: Exception) { null }
+            ?: run { log("warn", "No title (${sbn.notification.category})"); return }
 
         // Extract text: try EXTRA_TEXT, EXTRA_BIG_TEXT, then MessagingStyle messages
         val text: String = run {
-            extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
-                ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
+            try {
+                extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
+                    ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
+            } catch (_: Exception) { null }
                 ?: extractMessagingText(extras)
                 ?: run { log("warn", "No usable text"); return }
         }
