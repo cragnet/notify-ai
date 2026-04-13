@@ -85,13 +85,16 @@ class NotificationService : NotificationListenerService() {
                 }
             }
             val arr = JSONArray(jsonStr)
-            val result = (0 until arr.length()).map { 
-                val item = arr.get(it)
-                when (item) {
-                    is String -> item
-                    is Number -> item.toString()
+            val result = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val item = arr.get(i)
+                val str = when {
+                    item is String -> item
+                    item is Number -> item.toString()
+                    item == null -> continue
                     else -> item.toString()
                 }
+                result.add(str)
             }
             log("info", "spList[$key] = ${result.size} entries: $result")
             result
