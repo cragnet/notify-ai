@@ -5,6 +5,7 @@ import '../models/provider_config.dart';
 import 'provider_settings_screen.dart';
 import 'app_selector_screen.dart';
 import 'import_export_screen.dart';
+import 'about_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -169,6 +170,19 @@ class HomeScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right, color: Colors.white38),
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ImportExportScreen())),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _Label('About'),
+        _Card(
+          child: ListTile(
+            leading: const Icon(Icons.info_outline, color: Colors.white54),
+            title: const Text('About Notify AI'),
+            subtitle: const Text('Version info, supported providers',
+                style: TextStyle(color: Colors.white38, fontSize: 13)),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const AboutScreen())),
           ),
         ),
         const SizedBox(height: 24),
