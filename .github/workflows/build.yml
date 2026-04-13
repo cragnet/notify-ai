@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    env:
+      GRADLE_OPTS: -Xmx6g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError
+      _JAVA_OPTIONS: -Xmx6g -XX:MaxMetaspaceSize=1g
 
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +31,6 @@ jobs:
         run: flutter pub get
 
       - name: Build Debug APK
-        env:
-          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError
         run: flutter build apk --debug
 
       - name: Upload APK
