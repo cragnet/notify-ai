@@ -34,6 +34,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
           'dismiss_on_app_usage': settings.dismissOnAppUsage,
           'retain_original_actions': settings.retainOriginalActions,
           'service_enabled': settings.serviceEnabled,
+          'custom_prompt': settings.customPrompt,
         },
         'provider_models': settings.providerModels,
         'provider_base_urls': settings.providerBaseUrls,
@@ -106,6 +107,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       if (s['dismiss_on_app_usage'] != null) await settings.setDismissOnAppUsage(s['dismiss_on_app_usage']);
       if (s['retain_original_actions'] != null) await settings.setRetainOriginalActions(s['retain_original_actions']);
       if (s['service_enabled'] != null) await settings.setServiceEnabled(s['service_enabled']);
+      if (s['custom_prompt'] != null) await settings.setCustomPrompt(s['custom_prompt']);
 
       for (final e in models.entries) await settings.setModel(e.key, e.value.toString());
       for (final e in urls.entries) await settings.setBaseUrl(e.key, e.value.toString());

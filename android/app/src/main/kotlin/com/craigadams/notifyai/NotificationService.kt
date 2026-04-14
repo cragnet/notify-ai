@@ -299,7 +299,15 @@ class NotificationService : NotificationListenerService() {
 
         val name = appName(pkg)
         val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
-        val prompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
+        val customPrompt = spStr("custom_prompt", "")
+        val prompt = if (customPrompt.isNotEmpty()) {
+            customPrompt
+                .replace("{app_name}", name)
+                .replace("{notifications}", msgs)
+                .replace("{count}", buf.size.toString())
+        } else {
+            "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
+        }
         val images = buf.mapNotNull { it.imageBase64 }
 
         return try {

@@ -20,8 +20,15 @@ class SettingsProvider extends ChangeNotifier {
   int notificationThreshold = 2;
   bool dismissOnAppUsage = true;
   bool retainOriginalActions = true;
+  String customPrompt = '';
 
   Set<String> enabledApps = {};
+
+  // Default prompt template
+  static const String defaultPrompt = '''Summarize the following notifications concisely.
+
+Provide bullet points highlighting the key information.
+Be brief but informative.''';
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -32,6 +39,7 @@ class SettingsProvider extends ChangeNotifier {
     notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
     retainOriginalActions = _prefs.getBool('retain_original_actions') ?? true;
+    customPrompt = _prefs.getString('custom_prompt') ?? defaultPrompt;
     enabledApps = (_prefs.getStringList('enabled_apps') ?? []).toSet();
 
     for (final p in ['claude', 'openai', 'ollama', 'openrouter', 'gemini', 'gemini_nano', 'local']) {
@@ -134,6 +142,14 @@ class SettingsProvider extends ChangeNotifier {
     await _prefs.setBool('retain_original_actions', v);
     notifyListeners();
   }
+
+  Future<void> setCustomPrompt(String prompt) async {
+    customPrompt = prompt;
+    await _prefs.setString('custom_prompt', prompt);
+    notifyListeners();
+  }
+
+  String getCustomPrompt() => customPrompt.isNotEmpty ? customPrompt : defaultPrompt;
 
   Future<void> setServiceEnabled(bool v) async {
     serviceEnabled = v;
