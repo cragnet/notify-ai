@@ -573,7 +573,7 @@ class NotificationService : NotificationListenerService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
         return try {
             @Suppress("DEPRECATION")
-            val msgs = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return null
+            val msgs = try { extras.getParcelableArray(Notification.EXTRA_MESSAGES) } catch (_: ClassCastException) { null } ?: return null
             val texts = msgs.mapNotNull { m ->
                 try {
                     (m as? android.os.Bundle)?.getCharSequence("text")?.toString()
