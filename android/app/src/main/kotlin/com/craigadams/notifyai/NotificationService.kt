@@ -186,7 +186,8 @@ class NotificationService : NotificationListenerService() {
         if (selected.isEmpty()) { log("warn", "No apps selected"); return }
         if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
-        val extras = sbn.notification.extras
+        val extras = try { sbn.notification.extras } catch (e: Exception) { null }
+            ?: run { log("warn", "Cannot access notification extras"); return }
         val title = try {
             extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
                 ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
