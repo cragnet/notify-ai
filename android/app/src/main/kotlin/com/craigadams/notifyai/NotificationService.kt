@@ -85,16 +85,13 @@ class NotificationService : NotificationListenerService() {
                 }
             }
             val arr = JSONArray(jsonStr)
-            val result = mutableListOf<String>()
-            for (i in 0 until arr.length()) {
-                val item = arr.get(i)
-                val str = when {
-                    item is String -> item
-                    item is Number -> item.toString()
-                    item == null -> continue
+            val result = (0 until arr.length()).map { 
+                val item = arr.get(it)
+                when (item) {
+                    is String -> item
+                    is Number -> item.toString()
                     else -> item.toString()
                 }
-                result.add(str)
             }
             log("info", "spList[$key] = ${result.size} entries: $result")
             result
@@ -178,55 +175,40 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun handleNotification(sbn: StatusBarNotification) {
-        try {
-            val pkg = sbn.packageName
-            if (pkg == applicationContext.packageName) return
+        val pkg = sbn.packageName
+        if (pkg == applicationContext.packageName) return
 
-            log("info", "--- Notification from: $pkg ---")
+        log("info", "--- Notification from: $pkg ---")
 
-            if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
+        if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
 
-            val selected = try {
-                spList("enabled_apps_set")
-            } catch (e: Exception) {
-                log("error", "spList crash: ${e.javaClass.simpleName}: ${e.message}")
-                emptyList()
-            }
-            if (selected.isEmpty()) { log("warn", "No apps selected"); return }
-            if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
+        val selected = spList("enabled_apps_set")
+        if (selected.isEmpty()) { log("warn", "No apps selected"); return }
+        if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
 
-            log("debug", "Step 1: getting extras")
-            val extras = sbn.notification.extras
-            log("debug", "Step 2: getting title")
-            val title = try {
-                extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-                    ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
-            } catch (e: Exception) { null }
-                ?: run { log("warn", "No title (${sbn.notification.category})"); return }
-            log("debug", "Step 3: got title=$title")
+        val extras = sbn.notification.extras
+        val title = try {
+            extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+                ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+        } catch (e: Exception) { null }
+            ?: run { log("warn", "No title (${sbn.notification.category})"); return }
 
-            log("debug", "Step 4: getting text")
-            val text: String = run {
-                try {
-                    extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
-                        ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
-                } catch (_: Exception) { null }
-                    ?: extractMessagingText(extras)
-                    ?: run { log("warn", "No usable text"); return }
-            }
-            log("debug", "Step 5: got text")
+        // Extract text: try EXTRA_TEXT, EXTRA_BIG_TEXT, then MessagingStyle messages
+        val text: String = run {
+            try {
+                extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
+                    ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
+            } catch (_: Exception) { null }
+                ?: extractMessagingText(extras)
+                ?: run { log("warn", "No usable text"); return }
+        }
 
-            log("debug", "Step 6: getting name and image")
-            val name = appName(pkg)
-            val image = extractImage(sbn.notification)
-            val actions = sbn.notification.actions?.toList() ?: emptyList()
-            log("debug", "Step 7: got name=$name, hasImage=${image != null}")
+        val name = appName(pkg)
+        val image = extractImage(sbn.notification)
+        val actions = sbn.notification.actions?.toList() ?: emptyList()
 
-            log("debug", "Step 8: saving history")
-            try { saveHistory(pkg, name, title, text, image != null) } catch (e: Exception) { log("warn", "saveHistory failed: ${e.message}") }
-            log("debug", "Step 9: recording stat")
-            try { recordStat(pkg, intercepted = true, summarised = false) } catch (e: Exception) { log("warn", "recordStat failed: ${e.message}") }
-            log("debug", "Step 10: adding to buffer")
+        saveHistory(pkg, name, title, text, image != null)
+        recordStat(pkg, intercepted = true, summarised = false)
 
         buffer.getOrPut(pkg) { mutableListOf() }
             .add(Buffered(title, text, actions, sbn.key, image))
