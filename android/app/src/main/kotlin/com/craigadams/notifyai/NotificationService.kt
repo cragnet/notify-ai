@@ -178,7 +178,8 @@ class NotificationService : NotificationListenerService() {
         try {
             _handleNotificationInternal(sbn)
         } catch (e: ClassCastException) {
-            log("error", "ClassCastException in handleNotification: ${e.message}")
+            val stack = e.stackTrace.take(5).joinToString(" ") { "${it.fileName}:${it.lineNumber}" }
+            log("error", "ClassCastException: ${e.message} at $stack")
             throw e
         }
     }
