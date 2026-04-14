@@ -38,6 +38,17 @@ const kProviders = [
     keyHint: 'Optional — leave blank if not required',
   ),
   ProviderConfig(
+    id: 'openai',
+    displayName: 'OpenAI / Compatible',
+    defaultModel: 'gpt-4o-mini',
+    defaultBaseUrl: 'https://api.openai.com',
+    needsApiKey: true,
+    needsBaseUrl: true,
+    modelHint: 'e.g. gpt-4o-mini, gpt-4o',
+    urlHint: 'https://api.openai.com or https://ollama.com/v1',
+    keyHint: 'sk-...',
+  ),
+  ProviderConfig(
     id: 'gemini',
     displayName: 'Google Gemini',
     defaultModel: 'gemini-2.0-flash',
