@@ -695,6 +695,21 @@ class NotificationService : NotificationListenerService() {
             var found = false
             for (i in 0 until all.length()) if (all.getString(i) == key) { found = true; break }
             if (!found) { all.put(key); sp.edit().putString(allKey, all.toString()).apply() }
+            
+            // Also write to file for persistence
+            try {
+                val statsDir = File(filesDir, "stats")
+                statsDir.mkdirs()
+                val statsFile = File(statsDir, "$today.json")
+                val stats = try {
+                    if (statsFile.exists()) JSONObject(statsFile.readText()) else JSONObject()
+                } catch (_: Exception) { JSONObject() }
+                val pkgStats = stats.optJSONObject(pkg) ?: JSONObject()
+                if (intercepted) pkgStats.put("intercepted", pkgStats.optInt("intercepted") + 1)
+                if (summarised) pkgStats.put("summarised", pkgStats.optInt("summarised") + 1)
+                stats.put(pkg, pkgStats)
+                statsFile.writeText(stats.toString(2))
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
     }
 

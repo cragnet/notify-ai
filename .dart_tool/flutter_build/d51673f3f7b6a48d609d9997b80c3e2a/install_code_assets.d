@@ -1,0 +1,1 @@
+ /home/ccopscmc/notify-ai/.dart_tool/flutter_build/d51673f3f7b6a48d609d9997b80c3e2a/native_assets.json: 
