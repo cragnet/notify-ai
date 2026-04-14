@@ -19,7 +19,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.craigadams.notifyai"
     compileSdk flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    // ndkVersion removed - not needed for this app
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
