@@ -175,6 +175,16 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun handleNotification(sbn: StatusBarNotification) {
+        try {
+            _handleNotificationInternal(sbn)
+        } catch (e: ClassCastException) {
+            log("error", "ClassCastException in handleNotification: ${e.message} at ${e.stackTrace[0]}")
+        } catch (e: Exception) {
+            log("error", "Unexpected error in handleNotification: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    private fun _handleNotificationInternal(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
