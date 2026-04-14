@@ -175,16 +175,6 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun handleNotification(sbn: StatusBarNotification) {
-        try {
-            _handleNotificationInternal(sbn)
-        } catch (e: ClassCastException) {
-            log("error", "ClassCastException in handleNotification: ${e.message} at ${e.stackTrace[0]}")
-        } catch (e: Exception) {
-            log("error", "Unexpected error in handleNotification: ${e.javaClass.simpleName}: ${e.message}")
-        }
-    }
-
-    private fun _handleNotificationInternal(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
@@ -192,19 +182,12 @@ class NotificationService : NotificationListenerService() {
 
         if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
 
-        log("debug", "Step A: calling spList")
         val selected = spList("enabled_apps_set")
-        log("debug", "Step B: spList returned ${selected.size} items")
-        
         if (selected.isEmpty()) { log("warn", "No apps selected"); return }
-        log("debug", "Step C: selected not empty")
-        
         if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
-        log("debug", "Step D: pkg is in selected list")
 
-        log("debug", "Step E: getting extras")
         val extras = sbn.notification.extras
-        log("debug", "Step F: getting title")
+        val title = try {
             extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
                 ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
         } catch (e: Exception) { null }
