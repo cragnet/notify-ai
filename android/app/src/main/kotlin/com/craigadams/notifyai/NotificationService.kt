@@ -175,6 +175,15 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun handleNotification(sbn: StatusBarNotification) {
+        try {
+            _handleNotificationInternal(sbn)
+        } catch (e: ClassCastException) {
+            log("error", "ClassCastException in handleNotification: ${e.message}")
+            throw e
+        }
+    }
+
+    private fun _handleNotificationInternal(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
