@@ -61,7 +61,9 @@ class NotificationService : NotificationListenerService() {
         return try {
             sp().getInt("flutter.$key", def)
         } catch (e: ClassCastException) {
-            sp().getString("flutter.$key", null)?.toIntOrNull() ?: def
+            try {
+                sp().getString("flutter.$key", null)?.toIntOrNull() ?: def
+            } catch (_: Exception) { def }
         }
     }
 
