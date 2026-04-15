@@ -31,7 +31,10 @@ jobs:
         run: flutter pub get
 
       - name: Build Release APK
-        run: flutter build apk --release --target-platform=android-arm64 --no-shrink --verbose 2>&1 | tail -200
+        run: |
+          flutter build apk --release --target-platform=android-arm64 --no-shrink --verbose 2>&1 | tee /tmp/build.log
+          tail -200 /tmp/build.log
+          exit ${PIPESTATUS[0]}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
