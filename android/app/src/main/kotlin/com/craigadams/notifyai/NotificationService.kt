@@ -477,7 +477,8 @@ class NotificationService : NotificationListenerService() {
     // Response: { "choices": [{"message":{"content":"..."}}] }
 
     private fun callOpenAI(baseUrl: String, apiKey: String, model: String, prompt: String): String? {
-        val endpoint = "${baseUrl.trimEnd('/')}/v1/chat/completions"
+        val base = baseUrl.trimEnd('/')
+        val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
         log("info", "OpenAI-compat POST $endpoint model=$model")
 
         val body = JSONObject().apply {
