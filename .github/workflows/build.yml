@@ -32,13 +32,16 @@ jobs:
 
       - name: Build Release APK
         run: |
-          flutter build apk --release --target-platform=android-arm64 --no-shrink --verbose 2>&1 | tee /tmp/build.log
-          tail -200 /tmp/build.log
-          exit ${PIPESTATUS[0]}
+          flutter build apk --release --target-platform=android-arm64 --no-shrink 2>&1
+          EXIT_CODE=$?
+          echo "Build exit code: $EXIT_CODE"
+          # Find the APK file
+          find build -name "*.apk" -type f 2>/dev/null
+          exit $EXIT_CODE
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: notify-ai-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/**/app-*.apk
           retention-days: 30
