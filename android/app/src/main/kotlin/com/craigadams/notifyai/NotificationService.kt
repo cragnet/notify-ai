@@ -343,8 +343,19 @@ class NotificationService : NotificationListenerService() {
     // Response: { "response": "..." }
 
     private fun callOllama(baseUrl: String, model: String, prompt: String, apiKey: String): String? {
-        val endpoint = "${baseUrl.trimEnd('/')}/api/generate"
-        log("info", "Ollama POST $endpoint model=$model")
+        val base = baseUrl.trimEnd('/')
+
+        // Detect OpenAI-compatible endpoint (contains /v1)
+        return if (base.contains("/v1")) {
+            callOllamaOpenAICompatible(base, model, prompt, apiKey)
+        } else {
+            callOllamaNative(base, model, prompt, apiKey)
+        }
+    }
+
+    private fun callOllamaNative(baseUrl: String, model: String, prompt: String, apiKey: String): String? {
+        val endpoint = "$baseUrl/api/generate"
+        log("info", "Ollama Native POST $endpoint model=$model")
 
         val body = JSONObject().apply {
             put("model", model)
@@ -364,11 +375,50 @@ class NotificationService : NotificationListenerService() {
             val responseText = conn.inputStream.reader().readText()
             val json = JSONObject(responseText)
             val result = json.getString("response").trim()
-            log("success", "Ollama response OK — ${result.length} chars")
+            log("success", "Ollama Native response OK — ${result.length} chars")
             return result
         }
         val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
-        log("error", "Ollama HTTP $code: $errBody")
+        log("error", "Ollama Native HTTP $code: $errBody")
+        return null
+    }
+
+    private fun callOllamaOpenAICompatible(baseUrl: String, model: String, prompt: String, apiKey: String): String? {
+        val endpoint = "$baseUrl/chat/completions"
+        log("info", "Ollama OpenAI-compat POST $endpoint model=$model")
+
+        val body = JSONObject().apply {
+            put("model", model)
+            put("stream", false)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", "Provide a concise bullet summary. Reply with ONLY the bullet points, no other text or JSON.")
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            })
+        }.toString()
+
+        val headers = mutableMapOf("Content-Type" to "application/json")
+        if (apiKey.isNotEmpty()) headers["Authorization"] = "Bearer $apiKey"
+
+        val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
+        conn.outputStream.writer().use { it.write(body) }
+        val code = conn.responseCode
+        if (code == 200) {
+            val json = JSONObject(conn.inputStream.reader().readText())
+            val result = json.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content").trim()
+            log("success", "Ollama OpenAI-compat response OK — ${result.length} chars")
+            return result
+        }
+        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+        log("error", "Ollama OpenAI-compat HTTP $code: $errBody")
         return null
     }
 
