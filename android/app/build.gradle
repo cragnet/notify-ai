@@ -63,22 +63,12 @@ android {
             shrinkResources false
             // Reduce memory usage during build
             crunchPngs false
-            // Don't generate separate APKs for different densities
-            splits {
-                abi {
-                    enable true
-                    reset()
-                    include 'arm64-v8a'
-                    universalApk false
-                }
-            }
         }
     }
     
     // Reduce memory for Kotlin compilation
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += ["-Xno-optimized", "-Xskip-prerelease-check"]
     }
 }
 
