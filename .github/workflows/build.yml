@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-22.04
     
     env:
-      GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:ParallelGCThreads=2
-      _JAVA_OPTIONS: -Xmx3g -XX:MaxMetaspaceSize=512m
+      GRADLE_OPTS: -Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:ParallelGCThreads=1
+      _JAVA_OPTIONS: -Xmx2048m -XX:MaxMetaspaceSize=512m
 
     steps:
       - uses: actions/checkout@v4
@@ -38,18 +38,27 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - name: Build Release APK
+      - name: Build Release APK (memory optimized)
         run: |
-          flutter build apk --release --target-platform=android-arm64 --no-shrink
+          # Kill any existing Gradle daemon
+          cd android && ./gradlew --stop 2>/dev/null || true
+          cd ..
+          # Build with memory constraints
+          flutter build apk --release --target-platform=android-arm64 \
+            --no-tree-shake-icons \
+            --dart-define=DART_DEFINES_SKIP_FLUTTER_ASSETS=true
         env:
-          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=2
+          GRADLE_OPTS: -Xmx2048m -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=1 -Dorg.gradle.daemon=false
 
       - name: Find APK
-        run: find build -name "*.apk" -type f
+        run: |
+          find build -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "Directory check"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: notify-ai-release
-          path: build/app/outputs/flutter-apk/*.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
