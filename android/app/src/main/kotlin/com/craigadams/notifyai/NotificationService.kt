@@ -483,11 +483,17 @@ class NotificationService : NotificationListenerService() {
 
         val body = JSONObject().apply {
             put("model", model)
-            put("max_tokens", 150)
-            put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user")
-                put("content", prompt)
-            }))
+            put("stream", false)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", "Provide a concise bullet summary. Reply with ONLY the bullet points, no other text or JSON.")
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            })
         }.toString()
 
         val headers = mutableMapOf("Content-Type" to "application/json")
