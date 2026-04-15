@@ -40,17 +40,16 @@ jobs:
 
       - name: Build Release APK
         run: |
-          cd android
-          ./gradlew assembleRelease --no-daemon --max-workers=1 --offline 2>&1 | head -500
+          flutter build apk --release --target-platform=android-arm64 --no-shrink
         env:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=2
 
       - name: Find APK
-        run: find . -name "*.apk" -type f 2>/dev/null
+        run: find build -name "*.apk" -type f
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: notify-ai-release
-          path: '**/*.apk'
+          path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
