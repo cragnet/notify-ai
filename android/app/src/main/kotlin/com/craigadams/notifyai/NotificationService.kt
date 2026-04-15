@@ -405,6 +405,9 @@ class NotificationService : NotificationListenerService() {
         val headers = mutableMapOf("Content-Type" to "application/json")
         if (apiKey.isNotEmpty()) headers["Authorization"] = "Bearer $apiKey"
 
+        log("info", "Ollama OpenAI-compat body: $body")
+        log("info", "Ollama OpenAI-compat headers: ${headers.keys}")
+
         val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
         conn.outputStream.writer().use { it.write(body) }
         val code = conn.responseCode
