@@ -407,22 +407,31 @@ class NotificationService : NotificationListenerService() {
 
         log("info", "Ollama OpenAI-compat body: $body")
         log("info", "Ollama OpenAI-compat headers: ${headers.keys}")
+        log("info", "Ollama OpenAI-compat body length: ${body.length}")
 
-        val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
-        conn.outputStream.writer().use { it.write(body) }
-        val code = conn.responseCode
-        if (code == 200) {
-            val json = JSONObject(conn.inputStream.reader().readText())
-            val result = json.getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content").trim()
-            log("success", "Ollama OpenAI-compat response OK — ${result.length} chars")
-            return result
+        return try {
+            val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
+            conn.outputStream.writer().use { it.write(body) }
+            conn.outputStream.flush()
+            conn.outputStream.close()
+            val code = conn.responseCode
+            log("info", "Ollama OpenAI-compat response code: $code")
+            if (code == 200) {
+                val json = JSONObject(conn.inputStream.reader().readText())
+                val result = json.getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content").trim()
+                log("success", "Ollama OpenAI-compat response OK — ${result.length} chars")
+                return result
+            }
+            val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
+            log("error", "Ollama OpenAI-compat HTTP $code: $errBody")
+            null
+        } catch (e: Exception) {
+            log("error", "Ollama OpenAI-compat exception: ${e.javaClass.simpleName}: ${e.message}")
+            null
         }
-        val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
-        log("error", "Ollama OpenAI-compat HTTP $code: $errBody")
-        return null
     }
 
     // ── Gemini ─────────────────────────────────────────────────────────────────
@@ -698,9 +707,15 @@ class NotificationService : NotificationListenerService() {
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             if (!headers.containsKey("Content-Type"))
                 setRequestProperty("Content-Type", "application/json")
+            // Some APIs require a User-Agent header
+            if (!headers.containsKey("User-Agent"))
+                setRequestProperty("User-Agent", "NotifyAI/1.0")
             connectTimeout = 15000
             this.readTimeout = readTimeout
             doOutput = true
+            // Disable caching and connection reuse which can cause issues
+            useCaches = false
+            defaultUseCaches = false
         }
     }
 
