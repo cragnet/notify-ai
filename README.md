@@ -1,150 +1,77 @@
 # Notify AI
 
-AI-powered notification summariser for Android.
-Supports Claude, OpenAI, Ollama (local/Pi), OpenRouter, Google Gemini, and Gemini Nano (on-device).
-
----
+AI-powered notification summariser for Android. Capture notifications from selected apps, batch them, and get AI-generated summaries.
 
 ## Features
-- Intercepts notifications from selected apps
-- Batches them per-app and sends to AI for summarising
-- Posts summary notification retaining original actions (Reply, Mark as read etc.)
-- Configurable threshold — summarise after 1, 2…10 notifications
-- Per-app grouping — each app gets its own notification channel
-- Stats screen — intercepted vs summarised, daily/weekly/monthly chart + per-app breakdown
-- Battery optimisation bypass to keep running in background
-- Fully responsive — phone, tablet, foldable
 
----
+- **Smart Batching:** Groups notifications from the same app, triggers summary when threshold reached
+- **Custom AI Prompts:** Personalise how the AI summarises your notifications
+- **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device), Ollama (cloud)
+- **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
+- **Per-App Settings:** Choose which apps to monitor and individual thresholds
+- **Stats & History:** Track intercepted vs summarised notifications with daily/weekly/monthly charts
+- **File Persistence:** Stats written to USB for backup
 
-## Building on Raspberry Pi 5
+## Supported AI Providers
 
-### Step 1 — Install dependencies
+| Provider | API Key Required | Notes |
+|----------|-----------------|-------|
+| OpenAI / Compatible | Yes | Use with OpenAI, Ollama Cloud, or any OpenAI-compatible API |
+| Google Gemini | Yes | Cloud-based Gemini models |
+| Gemini Nano | No | On-device AI (Pixel 8+ or supported devices only) |
+| Claude (Anthropic) | Yes | Via OpenRouter or direct |
+| OpenRouter | Yes | Access to many models including free tiers |
+
+## Quick Start
+
+1. **Install APK** from releases
+2. **Grant permissions:**
+   - Notification access
+   - App usage access
+   - Battery optimisation exclusion
+3. **Configure AI Provider:**
+   - Open Settings → AI Provider
+   - Select provider, enter API key, model name
+   - For Ollama Cloud: use OpenAI Compatible with `https://ollama.com/v1`
+4. **Select Apps:** Per-app settings → choose apps to monitor
+5. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
+
+## Building
+
+### Requirements
+- Flutter SDK
+- Android SDK (API 26+)
+- Java 17
+
+### Build Commands
 ```bash
-sudo apt-get update
-sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa default-jdk adb
-```
-
-### Step 2 — Install Flutter SDK
-```bash
-cd ~
-git clone https://github.com/flutter/flutter.git -b stable
-echo 'export PATH="$PATH:$HOME/flutter/bin"' >> ~/.bashrc
-source ~/.bashrc
-flutter --version
-```
-
-### Step 3 — Install Android SDK
-```bash
-mkdir -p ~/android-sdk/cmdline-tools
-cd ~/android-sdk/cmdline-tools
-wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-unzip commandlinetools-linux-11076708_latest.zip
-mv cmdline-tools latest
-
-echo 'export ANDROID_HOME=$HOME/android-sdk' >> ~/.bashrc
-echo 'export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools' >> ~/.bashrc
-source ~/.bashrc
-
-sdkmanager --licenses
-sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-```
-
-### Step 4 — Configure Flutter
-```bash
-flutter config --android-sdk ~/android-sdk
-flutter doctor --android-licenses
-flutter doctor
-```
-
-### Step 5 — Enable Wireless Debugging on your phone
-1. Settings → About Phone → tap **Build Number** 7 times
-2. Settings → **Developer Options** → enable **Wireless Debugging**
-3. Tap Wireless Debugging → note the **IP:port**
-4. Tap **Pair device with pairing code** → note the pairing port and code
-
-### Step 6 — Connect wirelessly from Pi
-```bash
-# One-time pairing
-adb pair <IP>:<PAIRING_PORT>
-# Enter the 6-digit code when prompted
-
-# Connect
-adb connect <IP>:<PORT>
-
-# Verify
-adb devices
-```
-
-### Step 7 — Copy project and build
-```bash
-# Copy the notify_ai folder to your Pi home directory, then:
-cd ~/notify_ai
 flutter pub get
-flutter run --release
-
-# Or build a standalone APK:
 flutter build apk --release
-# Output: build/app/outputs/flutter-apk/app-release.apk
 ```
 
----
+Output: `build/app/outputs/flutter-apk/app-release.apk`
 
-## First run on phone
+## Configuration
 
-1. Open **Notify AI**
-2. Tap **AI API key** → choose provider, enter key (or pick Ollama/Gemini Nano for no key)
-3. Tap **Notification access** → grant in system settings, return to app
-4. Tap **App usage access** → grant, return
-5. Tap **Disable battery optimisation** → tap Allow, return
-6. Tap the **arrow** to proceed to main app
-7. Go to **Per-app settings** → select apps to monitor
-8. Set your **threshold slider** and **summary length**
-9. Done — notifications will be summarised automatically
+### Custom AI Prompt
+Go to Settings → Custom AI Prompt. Variables available:
+- `{app_name}` — Name of the app
+- `{notifications}` — List of notifications
+- `{count}` — Number of notifications
 
----
-
-## AI Providers
-
-| Provider | Key needed | Notes |
-|---|---|---|
-| Claude (Anthropic) | Yes | console.anthropic.com — Haiku is cheapest |
-| OpenAI | Yes | platform.openai.com/api-keys |
-| OpenRouter | Yes | openrouter.ai/keys — many free models |
-| Google Gemini | Yes | aistudio.google.com/app/apikey |
-| Gemini Nano | No | On-device, Pixel 8+ / supported devices only |
-| Ollama | No | Runs on your Pi — free, private |
-
-### Ollama on Pi — allow external connections
-```bash
-sudo systemctl edit ollama
-# Add:
-[Service]
-Environment="OLLAMA_HOST=0.0.0.0:11434"
-
-sudo systemctl restart ollama
-```
-Use your Pi's **Tailscale IP** as the Base URL so it works away from home too.
-Default URL in app: `http://10.0.1.33:11434`
-
----
+### File Persistence
+Stats are written to `/data/data/com.craigadams.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
 
 ## Troubleshooting
 
-**No summaries appearing**
-- Check notification access: Settings → Apps → Special app access → Notification access
-- Check threshold — if set to 5 you need 5 notifications from same app first
-- Check API key in AI Provider settings
+**No summaries appearing:**
+- Check notification access granted
+- Verify AI provider configured (model name, API key, URL)
+- Check per-app settings — apps must be selected
+- Check threshold setting
 
-**Battery optimisation keeps turning back on**
-- Some manufacturers (Samsung, Xiaomi) reset this — re-grant after each reboot
-- Consider also enabling "Auto-start" in your phone's battery/permissions settings
+**Battery optimisation:** Some manufacturers (Samsung, Xiaomi) reset this on reboot — re-grant permission.
 
-**Ollama not responding**
-- Check Ollama is running: `systemctl status ollama`
-- Check OLLAMA_HOST is set to 0.0.0.0 (not 127.0.0.1)
-- Try opening `http://<PI_IP>:11434` in your phone's browser
+## License
 
-**flutter doctor shows issues**
-- Run `flutter doctor -v` for detail
-- Most common fix: `flutter doctor --android-licenses`
+MIT License — feel free to fork and modify.
