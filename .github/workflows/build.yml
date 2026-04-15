@@ -46,11 +46,11 @@ jobs:
           GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=2
 
       - name: Find APK
-        run: find build -name "*.apk" -type f
+        run: find . -name "*.apk" -type f 2>/dev/null
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: notify-ai-release
-          path: build/**/*.apk
+          path: '**/*.apk'
           retention-days: 30
