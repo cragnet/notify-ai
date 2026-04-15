@@ -38,6 +38,14 @@ jobs:
           sudo apt-get clean
           df -h
 
+      - name: Increment version code
+        run: |
+          # Get build number from GitHub Actions run number
+          BUILD_NUMBER=${{ github.run_number }}
+          # Update pubspec.yaml version (keep name, increment build number)
+          sed -i "s/version: .*/version: 1.0.0+$BUILD_NUMBER/" pubspec.yaml
+          cat pubspec.yaml | grep "version:"
+
       - name: Build Release APK (memory optimized)
         run: |
           # Kill any existing Gradle daemon
