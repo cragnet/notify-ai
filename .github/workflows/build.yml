@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-22.04
     
     env:
-      GRADLE_OPTS: -Xmx6g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError
-      _JAVA_OPTIONS: -Xmx6g -XX:MaxMetaspaceSize=1g
+      GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:ParallelGCThreads=2
+      _JAVA_OPTIONS: -Xmx3g -XX:MaxMetaspaceSize=512m
 
     steps:
       - uses: actions/checkout@v4
@@ -30,18 +30,27 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Free up space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo apt-get clean
+          df -h
+
       - name: Build Release APK
         run: |
-          flutter build apk --release --target-platform=android-arm64 --no-shrink 2>&1
-          EXIT_CODE=$?
-          echo "Build exit code: $EXIT_CODE"
-          # Find the APK file
-          find build -name "*.apk" -type f 2>/dev/null
-          exit $EXIT_CODE
+          cd android
+          ./gradlew assembleRelease --no-daemon --max-workers=1 --offline 2>&1 | head -500
+        env:
+          GRADLE_OPTS: -Xmx3g -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=2
+
+      - name: Find APK
+        run: find build -name "*.apk" -type f
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: notify-ai-release
-          path: build/**/app-*.apk
+          path: build/**/*.apk
           retention-days: 30
