@@ -7,12 +7,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     
-    env:
-      GRADLE_OPTS: -Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:ParallelGCThreads=1
-      _JAVA_OPTIONS: -Xmx2048m -XX:MaxMetaspaceSize=512m
-
     steps:
       - uses: actions/checkout@v4
 
@@ -27,46 +23,17 @@ jobs:
         with:
           channel: stable
 
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Free up space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo apt-get clean
-          df -h
-
-      - name: Increment version code
-        run: |
-          # Get build number from GitHub Actions run number
-          BUILD_NUMBER=${{ github.run_number }}
-          # Update pubspec.yaml version (keep name, increment build number)
-          sed -i "s/version: .*/version: 1.0.0+$BUILD_NUMBER/" pubspec.yaml
-          cat pubspec.yaml | grep "version:"
-
-      - name: Build Release APK (memory optimized)
-        run: |
-          # Kill any existing Gradle daemon
-          cd android && ./gradlew --stop 2>/dev/null || true
-          cd ..
-          # Build with memory constraints
-          flutter build apk --release --target-platform=android-arm64 \
-            --no-tree-shake-icons \
-            --dart-define=DART_DEFINES_SKIP_FLUTTER_ASSETS=true
+      - name: Build APK
+        run: flutter build apk --release
         env:
-          GRADLE_OPTS: -Xmx2048m -XX:MaxMetaspaceSize=512m -XX:ParallelGCThreads=1 -Dorg.gradle.daemon=false
-
-      - name: Find APK
-        run: |
-          find build -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "Directory check"
+          GRADLE_OPTS: -Xmx4g
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: notify-ai-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
