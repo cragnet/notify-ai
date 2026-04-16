@@ -53,6 +53,74 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
     }
   }
 
+  void _showColorPicker(BuildContext context, SettingsProvider settings, String packageName, String appName) {
+    final currentColor = settings.getNotificationColor(packageName);
+
+    // Predefined colors
+    final colors = [
+      Colors.red,
+      Colors.pink,
+      Colors.purple,
+      Colors.deepPurple,
+      Colors.indigo,
+      Colors.blue,
+      Colors.lightBlue,
+      Colors.cyan,
+      Colors.teal,
+      Colors.green,
+      Colors.lightGreen,
+      Colors.lime,
+      Colors.yellow,
+      Colors.amber,
+      Colors.orange,
+      Colors.deepOrange,
+      Colors.brown,
+      Colors.blueGrey,
+      Colors.grey,
+      Colors.black,
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Notification color for $appName'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              // Clear color option
+              _ColorOption(
+                color: null,
+                isSelected: currentColor == null,
+                onTap: () {
+                  settings.setNotificationColor(packageName, null);
+                  Navigator.pop(context);
+                },
+                label: 'Default',
+              ),
+              ...colors.map((color) => _ColorOption(
+                color: color,
+                isSelected: currentColor == color.value,
+                onTap: () {
+                  settings.setNotificationColor(packageName, color.value);
+                  Navigator.pop(context);
+                },
+              )),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Map<String, String>> get _filtered {
     if (_search.isEmpty) return _apps;
     final q = _search.toLowerCase();
@@ -242,6 +310,8 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                               final name = app['appName'] ?? pkg;
                               final isSelected = selected.contains(pkg);
 
+                              final notificationColor = settings.getNotificationColor(pkg);
+
                               return InkWell(
                                 onTap: () => settings.toggleApp(pkg),
                                 child: Padding(
@@ -274,6 +344,19 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                                           ],
                                         ),
                                       ),
+                                      // Color picker button (only for selected apps)
+                                      if (isSelected)
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.color_lens,
+                                            color: notificationColor != null
+                                                ? Color(notificationColor)
+                                                : Colors.white38,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Set notification color',
+                                          onPressed: () => _showColorPicker(context, settings, pkg, name),
+                                        ),
                                       Checkbox(
                                         value: isSelected,
                                         onChanged: (_) => settings.toggleApp(pkg),
@@ -287,6 +370,57 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ColorOption extends StatelessWidget {
+  final Color? color;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final String? label;
+
+  const _ColorOption({
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+    this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: onTap,
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color ?? Colors.grey[800],
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isSelected ? Colors.white : Colors.transparent,
+                width: 3,
+              ),
+            ),
+            child: color == null
+                ? const Icon(Icons.format_color_reset, color: Colors.white54)
+                : isSelected
+                    ? const Icon(Icons.check, color: Colors.white)
+                    : null,
+          ),
+        ),
+        if (label != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              label!,
+              style: const TextStyle(fontSize: 10, color: Colors.white54),
+            ),
+          ),
+      ],
     );
   }
 }

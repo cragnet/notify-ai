@@ -2,7 +2,9 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -37,3 +39,12 @@ jobs:
           name: notify-ai-release
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
+
+      - name: Create Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

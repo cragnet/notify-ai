@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:convert';
 
 class SettingsProvider extends ChangeNotifier {
   late SharedPreferences _prefs;
@@ -23,6 +24,7 @@ class SettingsProvider extends ChangeNotifier {
   String customPrompt = '';
 
   Set<String> enabledApps = {};
+  Map<String, int?> notificationColors = {}; // packageName -> color value
 
   // Default prompt template
   static const String defaultPrompt = '''Summarize the following notifications concisely.
@@ -41,6 +43,16 @@ Be brief but informative.''';
     retainOriginalActions = _prefs.getBool('retain_original_actions') ?? true;
     customPrompt = _prefs.getString('custom_prompt') ?? defaultPrompt;
     enabledApps = (_prefs.getStringList('enabled_apps') ?? []).toSet();
+
+    // Load notification colors
+    final colorsJson = _prefs.getString('notification_colors');
+    if (colorsJson != null) {
+      try {
+        final colorsMap = jsonDecode(colorsJson) as Map<String, dynamic>;
+        notificationColors = colorsMap.map((key, value) =>
+          MapEntry(key, value != null ? value as int : null));
+      } catch (_) {}
+    }
 
     for (final p in ['claude', 'openai', 'ollama', 'openrouter', 'gemini', 'gemini_nano', 'local']) {
       final model = _prefs.getString('model_$p');
@@ -181,5 +193,38 @@ Be brief but informative.''';
     // ignore: avoid_print
     print('NotifyAI: saved enabled_apps_set: $list');
     notifyListeners();
+  }
+
+  // Notification color methods
+  int? getNotificationColor(String packageName) {
+    return notificationColors[packageName];
+  }
+
+  Future<void> setNotificationColor(String packageName, int? color) async {
+    if (color == null) {
+      notificationColors.remove(packageName);
+    } else {
+      notificationColors[packageName] = color;
+    }
+    await _saveNotificationColors();
+    notifyListeners();
+  }
+
+  Future<void> _saveNotificationColors() async {
+    final colorsMap = notificationColors.map((key, value) =>
+      MapEntry(key, value));
+    await _prefs.setString('notification_colors', jsonEncode(colorsMap));
+  }
+
+  // Method to get API keys for export
+  Map<String, String> getApiKeysForExport({bool includeKeys = false}) {
+    if (!includeKeys) return {};
+    return Map.from(apiKeys);
+  }
+
+  Future<void> importApiKey(String provider, String key) async {
+    if (key.isNotEmpty) {
+      await setApiKey(provider, key);
+    }
   }
 }

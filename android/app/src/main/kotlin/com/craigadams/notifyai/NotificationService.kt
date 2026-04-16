@@ -7,7 +7,9 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Handler
@@ -34,17 +36,27 @@ class NotificationService : NotificationListenerService() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
-    data class Buffered(
+    data class NotificationItem(
         val title: String,
         val text: String,
         val actions: List<Notification.Action>,
         val sbnKey: String,
-        val imageBase64: String? = null
+        val imageBase64: String? = null,
+        val timestamp: Long = System.currentTimeMillis(),
+        val conversationId: String? = null
     )
 
-    private val buffer = mutableMapOf<String, MutableList<Buffered>>()
+    data class NotificationGroup(
+        val notifications: MutableList<NotificationItem> = mutableListOf(),
+        var summary: String? = null,
+        var summaryTimestamp: Long = 0,
+        var notificationColor: Int? = null
+    )
+
+    // Per-package buffer for grouped notifications
+    private val buffer = mutableMapOf<String, NotificationGroup>()
     private val debounce = mutableMapOf<String, Runnable>()
-    private val DEBOUNCE_MS = 2000L
+    private val DEBOUNCE_MS = 3000L
     private val STATUS_NOTIF_ID = "notifyai_status".hashCode()
 
     // ── SharedPreferences ──────────────────────────────────────────────────────
@@ -210,13 +222,15 @@ class NotificationService : NotificationListenerService() {
         // Extract text: try EXTRA_TEXT, EXTRA_BIG_TEXT, then MessagingStyle messages
         val text: String = run {
             try {
-                extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 3 }
-                    ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 3 }
+                extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.length >= 2 }
+                    ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.length >= 2 }
             } catch (_: Exception) { null }
                 ?: extractMessagingText(extras)
                 ?: run { log("warn", "No usable text"); return }
         }
 
+        // Extract conversation info for grouping
+        val conversationId = extractConversationId(extras, title)
         val name = appName(pkg)
         val image = extractImage(sbn.notification)
         val actions = sbn.notification.actions?.toList() ?: emptyList()
@@ -224,33 +238,82 @@ class NotificationService : NotificationListenerService() {
         saveHistory(pkg, name, title, text, image != null)
         recordStat(pkg, intercepted = true, summarised = false)
 
-        buffer.getOrPut(pkg) { mutableListOf() }
-            .add(Buffered(title, text, actions, sbn.key, image))
+        // Get or create the notification group for this package
+        val group = buffer.getOrPut(pkg) { NotificationGroup() }
+
+        // Check if this is an update to an existing notification (same key)
+        val existingIndex = group.notifications.indexOfFirst { it.sbnKey == sbn.key }
+        val newItem = NotificationItem(
+            title = title,
+            text = text,
+            actions = actions,
+            sbnKey = sbn.key,
+            imageBase64 = image,
+            timestamp = System.currentTimeMillis(),
+            conversationId = conversationId
+        )
+
+        if (existingIndex >= 0) {
+            // Update existing notification
+            group.notifications[existingIndex] = newItem
+            log("info", "Updated existing notification #$existingIndex for $name")
+        } else {
+            // Add new notification
+            group.notifications.add(newItem)
+            log("info", "Added new notification to group for $name")
+        }
+
+        // Get notification color if set
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            sbn.notification.color.takeIf { it != 0 }?.let {
+                group.notificationColor = it
+            }
+        }
 
         val threshold = spInt("notification_threshold", 2)
-        val count = buffer[pkg]?.size ?: 0
-        log("info", "CAPTURED #$count from $name: title='$title' text='${text.take(80)}' threshold=$threshold")
+        val count = group.notifications.size
+        log("info", "CAPTURED #$count from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
 
         // Cancel any pending debounce for this app
         debounce[pkg]?.let { handler.removeCallbacks(it) }
 
         val runnable = Runnable {
-            val buf = buffer[pkg]?.toList()
-            if (buf.isNullOrEmpty()) return@Runnable
-            buffer.remove(pkg)
-            debounce.remove(pkg)
-            log("info", "Processing ${buf.size} notification(s) from $name")
+            val currentGroup = buffer[pkg] ?: return@Runnable
+            val notificationsToProcess = currentGroup.notifications.toList()
+            if (notificationsToProcess.isEmpty()) return@Runnable
 
-            val allActions = buf.flatMap { it.actions }.distinctBy { it.title?.toString() }
+            // Clear only the notifications we're processing, keep the group for future updates
+            currentGroup.notifications.clear()
+            debounce.remove(pkg)
+
+            log("info", "Processing ${notificationsToProcess.size} notification(s) from $name")
+
+            // Collect all actions from all notifications
+            val allActions = notificationsToProcess.flatMap { it.actions }.distinctBy { it.title?.toString() }
+
+            // Only dismiss the specific notifications being processed, not all from the app
             if (spBool("dismiss_on_app_usage", true)) {
-                buf.forEach { try { cancelNotification(it.sbnKey) } catch (_: Exception) {} }
-                log("info", "Dismissed ${buf.size} originals, retained ${allActions.size} action(s)")
+                notificationsToProcess.forEach { item ->
+                    try {
+                        cancelNotification(item.sbnKey)
+                        log("info", "Dismissed notification: ${item.sbnKey}")
+                    } catch (_: Exception) {}
+                }
             }
 
             executor.execute {
-                val summary = callAI(pkg, buf)
+                // Build prompt with previous summary context if available
+                val previousSummary = currentGroup.summary
+                val summary = callAI(pkg, notificationsToProcess, previousSummary)
+
                 if (summary != null) {
-                    postSummary(pkg, summary, allActions, buf.size)
+                    // Store the summary for future updates
+                    currentGroup.summary = summary
+                    currentGroup.summaryTimestamp = System.currentTimeMillis()
+
+                    val appIcon = getAppIcon(pkg)
+                    val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
+                    postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
                     recordStat(pkg, intercepted = false, summarised = true)
                     log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
                 } else {
@@ -261,26 +324,68 @@ class NotificationService : NotificationListenerService() {
 
         debounce[pkg] = runnable
         if (count >= threshold) {
-            // Threshold reached — fire quickly (500ms lets any same-burst duplicates land)
-            handler.postDelayed(runnable, 500L)
-            log("info", "Threshold met ($count >= $threshold) — triggering in 500ms")
+            // Threshold reached — fire after short delay to let any same-burst notifications land
+            handler.postDelayed(runnable, 800L)
+            log("info", "Threshold met ($count >= $threshold) — triggering in 800ms")
         } else {
-            // Below threshold — wait for quiet window then process whatever arrived
+            // Below threshold — wait longer for more notifications
             handler.postDelayed(runnable, DEBOUNCE_MS)
             log("info", "Below threshold ($count/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
         }
     }
 
+    private fun extractConversationId(extras: android.os.Bundle, title: String): String? {
+        return try {
+            // Try to get conversation title/sender from messaging style
+            extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+                ?: extras.getCharSequence("android.messagingStyleUser.displayName")?.toString()
+                ?: title.takeIf { it.contains(":") }?.substringBefore(":")?.trim()
+                ?: title
+        } catch (_: Exception) { null }
+    }
+
+    private fun getNotificationColor(pkg: String): Int? {
+        return try {
+            val colorStr = spStr("notification_color_$pkg", "")
+            if (colorStr.isNotEmpty()) {
+                Color.parseColor(colorStr)
+            } else null
+        } catch (_: Exception) { null }
+    }
+
+    private fun getAppIcon(pkg: String): Bitmap? {
+        return try {
+            val appInfo = packageManager.getApplicationInfo(pkg, 0)
+            val drawable = packageManager.getApplicationIcon(appInfo)
+            drawableToBitmap(drawable)
+        } catch (_: Exception) { null }
+    }
+
+    private fun drawableToBitmap(drawable: Drawable): Bitmap {
+        if (drawable is BitmapDrawable) {
+            return drawable.bitmap
+        }
+        val bitmap = Bitmap.createBitmap(
+            drawable.intrinsicWidth.coerceAtLeast(1),
+            drawable.intrinsicHeight.coerceAtLeast(1),
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
+    }
+
     // ── AI dispatch ────────────────────────────────────────────────────────────
 
-    private fun callAI(pkg: String, buf: List<Buffered>): String? {
+    private fun callAI(pkg: String, buf: List<NotificationItem>, previousSummary: String? = null): String? {
         val provider = spStr("ai_provider", "ollama")
         val apiKey  = spStr("api_key_$provider", "")
         val model   = spStr("model_$provider", "")
         val baseUrl = spStr("base_url_$provider", "")
         val length  = spInt("summary_length", 2)
 
-        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${buf.size}")
+        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${buf.size} hasPrevious=${previousSummary != null}")
 
         if (model.isEmpty() && provider != "gemini_nano") {
             log("error", "AI SKIP: no model set for $provider — configure in AI Provider settings"); return null
@@ -292,6 +397,13 @@ class NotificationService : NotificationListenerService() {
             log("error", "AI SKIP: no API key set for Gemini — configure in AI Provider settings"); return null
         }
 
+        // Build length instruction
+        val lengthInstruction = when (length) {
+            1 -> "Keep the summary very brief - one short sentence maximum. Be extremely concise."
+            3 -> "Provide a detailed summary with 2-3 sentences covering key information. Include important details."
+            else -> "Provide a clear, concise summary in one sentence. Balance brevity with informativeness."
+        }
+
         val hint = when (length) {
             1 -> "in one very brief sentence"
             3 -> "in 2-3 sentences with key details"
@@ -301,13 +413,48 @@ class NotificationService : NotificationListenerService() {
         val name = appName(pkg)
         val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
         val customPrompt = spStr("custom_prompt", "")
+
+        // Build prompt with previous summary context and length instruction
         val prompt = if (customPrompt.isNotEmpty()) {
-            customPrompt
+            // Include length instruction in custom prompt if it doesn't already specify length
+            val promptWithLength = if (customPrompt.contains("length", ignoreCase = true) ||
+                                         customPrompt.contains("brief", ignoreCase = true) ||
+                                         customPrompt.contains("detailed", ignoreCase = true) ||
+                                         customPrompt.contains("sentence", ignoreCase = true)) {
+                customPrompt
+            } else {
+                "$customPrompt\n\nLength requirement: $lengthInstruction"
+            }
+
+            val basePrompt = promptWithLength
                 .replace("{app_name}", name)
                 .replace("{notifications}", msgs)
                 .replace("{count}", buf.size.toString())
+
+            // Include previous summary for context if available
+            if (previousSummary != null) {
+                """Previous summary: $previousSummary
+
+New notifications to add to the summary:
+$basePrompt
+
+Please provide an updated summary that incorporates both the previous summary and new notifications. $lengthInstruction"""
+            } else {
+                basePrompt
+            }
         } else {
-            "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
+            val basePrompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
+
+            if (previousSummary != null) {
+                """Previous summary: $previousSummary
+
+New $name messages to add to the summary:
+$msgs
+
+Please provide an updated summary that incorporates both the previous context and new messages. $lengthInstruction Be direct, no preamble."""
+            } else {
+                basePrompt
+            }
         }
         val images = buf.mapNotNull { it.imageBase64 }
 
@@ -581,7 +728,8 @@ class NotificationService : NotificationListenerService() {
     // ── Post summary notification ──────────────────────────────────────────────
 
     private fun postSummary(pkg: String, summary: String,
-                            actions: List<Notification.Action>, count: Int) {
+                            actions: List<Notification.Action>, count: Int,
+                            appIcon: Bitmap? = null, notificationColor: Int? = null) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val groupId = "notify_ai_group_$pkg"
         val channelId = "notify_ai_v2_$pkg"   // v2 = HIGH importance; v1 channels were DEFAULT
@@ -611,6 +759,21 @@ class NotificationService : NotificationListenerService() {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
             .setGroup(groupId)
+
+        // Set app icon as large icon if available
+        if (appIcon != null) {
+            builder.setLargeIcon(appIcon)
+            log("info", "Set app icon for $name notification")
+        }
+
+        // Set custom notification color if available
+        notificationColor?.let {
+            builder.setColor(it)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                builder.setColorized(true)
+            }
+            log("info", "Set notification color for $name: #${Integer.toHexString(it)}")
+        }
 
         // Retain original notification actions (Reply, Mark as read, etc.)
         val retainActions = spBool("retain_original_actions", true)

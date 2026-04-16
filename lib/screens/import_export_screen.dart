@@ -19,13 +19,14 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
   bool _importing = false;
   String? _statusMessage;
   bool _statusSuccess = true;
+  bool _includeApiKeys = false;
 
   Future<void> _export() async {
     setState(() { _exporting = true; _statusMessage = null; });
     try {
       final settings = context.read<SettingsProvider>();
       final export = {
-        'version': 1,
+        'version': 2,
         'exported_at': DateTime.now().toIso8601String(),
         'settings': {
           'ai_provider': settings.aiProvider,
@@ -38,8 +39,14 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         },
         'provider_models': settings.providerModels,
         'provider_base_urls': settings.providerBaseUrls,
+        'notification_colors': settings.notificationColors.map((key, value) =>
+          MapEntry(key, value)),
         'enabled_apps': settings.enabledApps.toList()..sort(),
-        'note': 'API keys are not exported for security.',
+        'include_api_keys': _includeApiKeys,
+        'api_keys': _includeApiKeys ? settings.apiKeys : {},
+        'note': _includeApiKeys
+            ? 'WARNING: This export contains API keys. Store it securely!'
+            : 'API keys are not exported. Toggle the switch above to include them.',
       };
 
       final json = const JsonEncoder.withIndent('  ').convert(export);
@@ -54,7 +61,9 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
 
       setState(() {
         _exporting = false;
-        _statusMessage = 'Export shared — save the file somewhere safe';
+        _statusMessage = _includeApiKeys
+            ? 'Export shared with API keys — store securely!'
+            : 'Export shared — save the file somewhere safe';
         _statusSuccess = true;
       });
     } catch (e) {
@@ -101,6 +110,26 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       final urls = data['provider_base_urls'] as Map<String, dynamic>? ?? {};
       final apps = (data['enabled_apps'] as List?)?.cast<String>() ?? [];
 
+      // Import notification colors if present
+      final colors = data['notification_colors'] as Map<String, dynamic>? ?? {};
+      for (final e in colors.entries) {
+        final colorValue = e.value as int?;
+        if (colorValue != null) {
+          await settings.setNotificationColor(e.key, colorValue);
+        }
+      }
+
+      // Import API keys if present
+      final importedApiKeys = data['api_keys'] as Map<String, dynamic>? ?? {};
+      var apiKeyCount = 0;
+      for (final e in importedApiKeys.entries) {
+        final key = e.value as String?;
+        if (key != null && key.isNotEmpty) {
+          await settings.importApiKey(e.key, key);
+          apiKeyCount++;
+        }
+      }
+
       if (s['ai_provider'] != null) await settings.setAiProvider(s['ai_provider']);
       if (s['summary_length'] != null) await settings.setSummaryLength(s['summary_length']);
       if (s['notification_threshold'] != null) await settings.setNotificationThreshold(s['notification_threshold']);
@@ -115,7 +144,11 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
 
       setState(() {
         _importing = false;
-        _statusMessage = 'Import successful — ${apps.length} apps restored. Re-enter your API keys.';
+        if (apiKeyCount > 0) {
+          _statusMessage = 'Import successful — ${apps.length} apps restored, $apiKeyCount API key(s) imported.';
+        } else {
+          _statusMessage = 'Import successful — ${apps.length} apps restored. Re-enter your API keys.';
+        }
         _statusSuccess = true;
       });
     } catch (e) {
@@ -161,9 +194,20 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
             _Card(child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Exports all settings, provider config, and selected apps to a JSON file. API keys are not included.',
+                const Text('Exports all settings, provider config, and selected apps to a JSON file.',
                     style: TextStyle(color: Colors.white54, fontSize: 13)),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('Include API keys',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('WARNING: Exported file will contain sensitive API keys. Store securely!',
+                      style: TextStyle(color: Colors.white38, fontSize: 11)),
+                  value: _includeApiKeys,
+                  onChanged: (v) => setState(() => _includeApiKeys = v),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 8),
                 SizedBox(width: double.infinity, child: ElevatedButton.icon(
                   onPressed: _exporting ? null : _export,
                   icon: _exporting
@@ -180,7 +224,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
             _Card(child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Select a previously exported JSON file to restore all settings. You will need to re-enter your API keys afterwards.',
+                const Text('Select a previously exported JSON file to restore all settings. API keys will be imported if included in the export.',
                     style: TextStyle(color: Colors.white54, fontSize: 13)),
                 const SizedBox(height: 16),
                 SizedBox(width: double.infinity, child: ElevatedButton.icon(
