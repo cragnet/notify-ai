@@ -613,20 +613,26 @@ class NotificationService : NotificationListenerService() {
             .setGroup(groupId)
 
         // Retain original notification actions (Reply, Mark as read, etc.)
-        if (spBool("retain_original_actions", true)) {
+        val retainActions = spBool("retain_original_actions", true)
+        log("info", "Actions settings: retain_original_actions=$retainActions, found=${actions.size}")
+        if (retainActions && actions.isNotEmpty()) {
             log("info", "Attaching ${actions.size} original action(s) to summary")
-            actions.take(3).forEach { action ->
+            actions.take(5).forEach { action ->
                 try {
                     builder.addAction(action)
                     log("info", "  + action: ${action.title}")
                 } catch (e: Exception) {
-                    log("warn", "  Could not attach action '${action.title}': ${e.message}")
+                    log("warn", "  Could not attach action '${action.title}': ${e.javaClass.simpleName}: ${e.message}")
                 }
             }
+        } else {
+            log("info", "No actions attached: retainActions=$retainActions, actionsEmpty=${actions.isEmpty()}")
         }
 
-        nm.notify("$pkg:summary".hashCode(), builder.build())
-        log("success", "Summary notification posted for $name")
+        // Use unique ID so new summaries don't replace previous ones
+        val uniqueId = "${pkg}:summary:${System.currentTimeMillis()}".hashCode()
+        nm.notify(uniqueId, builder.build())
+        log("success", "Summary notification posted for $name (id=$uniqueId)")
     }
 
     private fun postStatusNotification(title: String, text: String) {
