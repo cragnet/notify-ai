@@ -32,17 +32,32 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class _HistoryScreenState extends State<HistoryScreen> with WidgetsBindingObserver {
   List<HistoryEntry> _entries = [];
   bool _loading = true;
   String _search = '';
   final _searchCtrl = TextEditingController();
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load();
+    }
+  }
 
   Future<void> _load() async {
     setState(() => _loading = true);
@@ -122,106 +137,118 @@ class _HistoryScreenState extends State<HistoryScreen> {
       appBar: AppBar(
         title: const Text('History'),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           if (_entries.isNotEmpty)
             IconButton(icon: const Icon(Icons.delete_outline, color: Colors.white54),
                 onPressed: _clear),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Search history…',
-                prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
-                suffixIcon: _search.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
-                        onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
-                    : null,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+      body: RefreshIndicator(
+        color: const Color(0xFF6B9E78),
+        onRefresh: _load,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Search history…',
+                  prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
+                  suffixIcon: _search.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
+                          onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+                onChanged: (v) => setState(() => _search = v),
               ),
-              onChanged: (v) => setState(() => _search = v),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Row(
-              children: [
-                Text('${_filtered.length} notifications',
-                    style: const TextStyle(color: Colors.white30, fontSize: 12)),
-                const Spacer(),
-                const Text('Last 30 days',
-                    style: TextStyle(color: Colors.white24, fontSize: 12)),
-              ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Row(
+                children: [
+                  Text('${_filtered.length} notifications',
+                      style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                  const Spacer(),
+                  const Text('Last 30 days',
+                      style: TextStyle(color: Colors.white24, fontSize: 12)),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
-                : _filtered.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.notifications_none, size: 48, color: Colors.white24),
-                            const SizedBox(height: 12),
-                            Text(_search.isNotEmpty ? 'No results for "$_search"' : 'No history yet',
-                                style: const TextStyle(color: Colors.white38, fontSize: 16)),
-                            if (_search.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.fromLTRB(32, 4, 32, 0),
-                                child: Text(
-                                  'Intercepted notifications will appear here.\nCheck the Log tab if nothing is appearing.',
-                                  style: TextStyle(color: Colors.white24, fontSize: 12),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        itemCount: dateKeys.length,
-                        itemBuilder: (ctx, i) {
-                          final label = dateKeys[i];
-                          final dayEntries = grouped[label]!;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-                                child: Text(label,
-                                    style: const TextStyle(
-                                        color: Color(0xFF6B9E78), fontSize: 13,
-                                        fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-                              ),
-                              Container(
-                                decoration: BoxDecoration(
-                                    color: const Color(0xFF1E1E1E),
-                                    borderRadius: BorderRadius.circular(16)),
-                                clipBehavior: Clip.hardEdge,
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
+                  : _filtered.isEmpty
+                      ? LayoutBuilder(
+                          builder: (context, constraints) => SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                              child: Center(
                                 child: Column(
-                                  children: dayEntries.asMap().entries.map((entry) {
-                                    final idx = entry.key;
-                                    final e = entry.value;
-                                    return Column(children: [
-                                      _Tile(entry: e),
-                                      if (idx < dayEntries.length - 1)
-                                        const Divider(color: Colors.white10, height: 1),
-                                    ]);
-                                  }).toList(),
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.notifications_none, size: 48, color: Colors.white24),
+                                    const SizedBox(height: 12),
+                                    Text(_search.isNotEmpty ? 'No results for "$_search"' : 'No history yet',
+                                        style: const TextStyle(color: Colors.white38, fontSize: 16)),
+                                    if (_search.isEmpty)
+                                      const Padding(
+                                        padding: EdgeInsets.fromLTRB(32, 4, 32, 0),
+                                        child: Text(
+                                          'Intercepted notifications will appear here.\nCheck the Log tab if nothing is appearing.',
+                                          style: TextStyle(color: Colors.white24, fontSize: 12),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          );
-                        },
-                      ),
-          ),
-        ],
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          itemCount: dateKeys.length,
+                          itemBuilder: (ctx, i) {
+                            final label = dateKeys[i];
+                            final dayEntries = grouped[label]!;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                                  child: Text(label,
+                                      style: const TextStyle(
+                                          color: Color(0xFF6B9E78), fontSize: 13,
+                                          fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                                ),
+                                Container(
+                                  decoration: BoxDecoration(
+                                      color: const Color(0xFF1E1E1E),
+                                      borderRadius: BorderRadius.circular(16)),
+                                  clipBehavior: Clip.hardEdge,
+                                  child: Column(
+                                    children: dayEntries.asMap().entries.map((entry) {
+                                      final idx = entry.key;
+                                      final e = entry.value;
+                                      return Column(children: [
+                                        _Tile(entry: e),
+                                        if (idx < dayEntries.length - 1)
+                                          const Divider(color: Colors.white10, height: 1),
+                                      ]);
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }

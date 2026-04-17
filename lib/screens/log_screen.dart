@@ -22,14 +22,29 @@ class LogScreen extends StatefulWidget {
   State<LogScreen> createState() => _LogScreenState();
 }
 
-class _LogScreenState extends State<LogScreen> {
+class _LogScreenState extends State<LogScreen> with WidgetsBindingObserver {
   List<LogEntry> _entries = [];
   bool _loading = true;
   String _filter = 'all';
+
   @override
   void initState() {
     super.initState();
     _load(showSpinner: true);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load();
+    }
   }
 
   Future<void> _load({bool showSpinner = false}) async {
@@ -83,93 +98,99 @@ class _LogScreenState extends State<LogScreen> {
       appBar: AppBar(
         title: const Text('Service Log'),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: () => _load(showSpinner: true)),
           IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white54),
               onPressed: _clear),
         ],
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              children: [
-                _Chip(label: 'All', value: 'all', current: _filter,
-                    onTap: (v) => setState(() => _filter = v)),
-                const SizedBox(width: 8),
-                _Chip(label: 'Info', value: 'info', current: _filter,
-                    color: Colors.white54, onTap: (v) => setState(() => _filter = v)),
-                const SizedBox(width: 8),
-                _Chip(label: 'Success', value: 'success', current: _filter,
-                    color: const Color(0xFF6B9E78), onTap: (v) => setState(() => _filter = v)),
-                const SizedBox(width: 8),
-                _Chip(label: 'Warning', value: 'warn', current: _filter,
-                    color: const Color(0xFFE8A838), onTap: (v) => setState(() => _filter = v)),
-                const SizedBox(width: 8),
-                _Chip(label: 'Error', value: 'error', current: _filter,
-                    color: Colors.redAccent, onTap: (v) => setState(() => _filter = v)),
-              ],
+      body: RefreshIndicator(
+        color: const Color(0xFF6B9E78),
+        onRefresh: () => _load(showSpinner: true),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                children: [
+                  _Chip(label: 'All', value: 'all', current: _filter,
+                      onTap: (v) => setState(() => _filter = v)),
+                  const SizedBox(width: 8),
+                  _Chip(label: 'Info', value: 'info', current: _filter,
+                      color: Colors.white54, onTap: (v) => setState(() => _filter = v)),
+                  const SizedBox(width: 8),
+                  _Chip(label: 'Success', value: 'success', current: _filter,
+                      color: const Color(0xFF6B9E78), onTap: (v) => setState(() => _filter = v)),
+                  const SizedBox(width: 8),
+                  _Chip(label: 'Warning', value: 'warn', current: _filter,
+                      color: const Color(0xFFE8A838), onTap: (v) => setState(() => _filter = v)),
+                  const SizedBox(width: 8),
+                  _Chip(label: 'Error', value: 'error', current: _filter,
+                      color: Colors.redAccent, onTap: (v) => setState(() => _filter = v)),
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Row(
-              children: [
-                Text('${_filtered.length} entries',
-                    style: const TextStyle(color: Colors.white30, fontSize: 12)),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () {
-                    final text = _filtered.map((e) =>
-                        '[${e.timestamp}] [${e.level.toUpperCase()}] ${e.message}').join('\n');
-                    Clipboard.setData(ClipboardData(text: text));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Log copied to clipboard'),
-                        backgroundColor: Color(0xFF4A7A56)));
-                  },
-                  child: const Text('Copy all',
-                      style: TextStyle(color: Color(0xFF6B9E78), fontSize: 12)),
-                ),
-              ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Row(
+                children: [
+                  Text('${_filtered.length} entries',
+                      style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () {
+                      final text = _filtered.map((e) =>
+                          '[${e.timestamp}] [${e.level.toUpperCase()}] ${e.message}').join('\n');
+                      Clipboard.setData(ClipboardData(text: text));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Log copied to clipboard'),
+                          backgroundColor: Color(0xFF4A7A56)));
+                    },
+                    child: const Text('Copy all',
+                        style: TextStyle(color: Color(0xFF6B9E78), fontSize: 12)),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
-                : _filtered.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.receipt_long_outlined,
-                                size: 48, color: Colors.white24),
-                            const SizedBox(height: 12),
-                            const Text('No log entries yet',
-                                style: TextStyle(color: Colors.white38, fontSize: 16)),
-                            const SizedBox(height: 4),
-                            const Text(
-                                'Activity appears here once the service intercepts notifications.\nMake sure apps are selected and notification access is granted.',
-                                style: TextStyle(color: Colors.white24, fontSize: 12),
-                                textAlign: TextAlign.center),
-                            const SizedBox(height: 20),
-                            ElevatedButton.icon(
-                              onPressed: _load,
-                              icon: const Icon(Icons.refresh, size: 16),
-                              label: const Text('Refresh'),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF6B9E78)))
+                  : _filtered.isEmpty
+                      ? LayoutBuilder(
+                          builder: (context, constraints) => SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.receipt_long_outlined,
+                                        size: 48, color: Colors.white24),
+                                    const SizedBox(height: 12),
+                                    const Text('No log entries yet',
+                                        style: TextStyle(color: Colors.white38, fontSize: 16)),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                        'Activity appears here once the service intercepts notifications.\nMake sure apps are selected and notification access is granted.',
+                                        style: TextStyle(color: Colors.white24, fontSize: 12),
+                                        textAlign: TextAlign.center),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          itemCount: _filtered.length,
+                          itemBuilder: (ctx, i) => _LogRow(entry: _filtered[i]),
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        itemCount: _filtered.length,
-                        itemBuilder: (ctx, i) => _LogRow(entry: _filtered[i]),
-                      ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

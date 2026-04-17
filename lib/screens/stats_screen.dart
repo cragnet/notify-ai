@@ -14,7 +14,7 @@ class StatsScreen extends StatefulWidget {
   State<StatsScreen> createState() => _StatsScreenState();
 }
 
-class _StatsScreenState extends State<StatsScreen> {
+class _StatsScreenState extends State<StatsScreen> with WidgetsBindingObserver {
   _Period _period = _Period.daily;
 
   @override
@@ -23,6 +23,20 @@ class _StatsScreenState extends State<StatsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<StatsProvider>().load();
     });
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<StatsProvider>().load();
+    }
   }
 
   DateTimeRange _range() {
@@ -58,12 +72,6 @@ class _StatsScreenState extends State<StatsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Statistics'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => stats.load(),
-          ),
-        ],
       ),
       body: RefreshIndicator(
         color: const Color(0xFF6B9E78),

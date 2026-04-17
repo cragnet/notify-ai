@@ -238,14 +238,13 @@ class NotificationService : NotificationListenerService() {
         val image = extractImage(sbn.notification)
         val actions = sbn.notification.actions?.toList() ?: emptyList()
 
-        saveHistory(pkg, name, title, text, image != null)
-        recordStat(pkg, intercepted = true, summarised = false)
-
         // Get or create the notification group for this package
         val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
 
         // Check if this is an update to an existing notification (same key)
         val existingIndex = group.notifications.indexOfFirst { it.sbnKey == sbn.key }
+        val isNewNotification = existingIndex < 0
+
         val newItem = NotificationItem(
             title = title,
             text = text,
@@ -256,14 +255,16 @@ class NotificationService : NotificationListenerService() {
             conversationId = conversationId
         )
 
-        if (existingIndex >= 0) {
-            // Update existing notification
+        if (isNewNotification) {
+            // Add new notification - record stats and history only for new notifications
+            group.notifications.add(newItem)
+            saveHistory(pkg, name, title, text, image != null)
+            recordStat(pkg, intercepted = true, summarised = false)
+            log("info", "Added new notification to group for $name")
+        } else {
+            // Update existing notification - don't count again
             group.notifications[existingIndex] = newItem
             log("info", "Updated existing notification #$existingIndex for $name")
-        } else {
-            // Add new notification
-            group.notifications.add(newItem)
-            log("info", "Added new notification to group for $name")
         }
 
         // Get notification color if set
