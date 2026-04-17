@@ -8,9 +8,12 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
 - **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device), Ollama (cloud)
 - **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
+- **Click to Open:** Tap any summary notification to jump directly to the originating app
+- **App Icons & Colors:** Summary notifications show the app's icon and original notification color
 - **Per-App Settings:** Choose which apps to monitor and individual thresholds
 - **Stats & History:** Track intercepted vs summarised notifications with daily/weekly/monthly charts
 - **File Persistence:** Stats written to USB for backup
+- **Cloud Builds:** APK built automatically via GitHub Actions on every push
 
 ## Supported AI Providers
 
@@ -38,12 +41,18 @@ AI-powered notification summariser for Android. Capture notifications from selec
 
 ## Building
 
-### Requirements
+### Cloud Build (Recommended)
+APKs are built automatically via **GitHub Actions** on every push to `main`:
+1. Go to [Actions tab](https://github.com/cragnet/notify-ai/actions)
+2. Download the `notify-ai-release` artifact from the latest run
+
+### Local Build
+**Requirements:**
 - Flutter SDK
 - Android SDK (API 26+)
 - Java 17
+- x86_64 architecture (ARM builds not supported due to NDK limitations)
 
-### Build Commands
 ```bash
 flutter pub get
 flutter build apk --release
