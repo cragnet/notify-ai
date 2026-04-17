@@ -4,7 +4,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -50,7 +52,8 @@ class NotificationService : NotificationListenerService() {
         val notifications: MutableList<NotificationItem> = mutableListOf(),
         var summary: String? = null,
         var summaryTimestamp: Long = 0,
-        var notificationColor: Int? = null
+        var notificationColor: Int? = null,
+        var packageName: String? = null
     )
 
     // Per-package buffer for grouped notifications
@@ -239,7 +242,7 @@ class NotificationService : NotificationListenerService() {
         recordStat(pkg, intercepted = true, summarised = false)
 
         // Get or create the notification group for this package
-        val group = buffer.getOrPut(pkg) { NotificationGroup() }
+        val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
 
         // Check if this is an update to an existing notification (same key)
         val existingIndex = group.notifications.indexOfFirst { it.sbnKey == sbn.key }
@@ -759,6 +762,20 @@ Please provide an updated summary that incorporates both the previous context an
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
             .setGroup(groupId)
+
+        // Add click intent to open the originating app
+        val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.setContentIntent(pendingIntent)
+            log("info", "Added launch intent for $name")
+        } else {
+            log("warn", "No launch intent found for $name")
+        }
 
         // Set app icon as large icon if available
         if (appIcon != null) {
