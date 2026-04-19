@@ -311,15 +311,20 @@ class NotificationService : NotificationListenerService() {
                 val summary = callAI(pkg, notificationsToProcess, previousSummary)
 
                 if (summary != null) {
-                    // Store the summary for future updates
-                    currentGroup.summary = summary
-                    currentGroup.summaryTimestamp = System.currentTimeMillis()
+                    // Skip posting if AI returns "no change" type messages
+                    if (isNoChangeResponse(summary)) {
+                        log("info", "AI indicated no change for $name — skipping notification: \"${summary.take(80)}\"")
+                    } else {
+                        // Store the summary for future updates
+                        currentGroup.summary = summary
+                        currentGroup.summaryTimestamp = System.currentTimeMillis()
 
-                    val appIcon = getAppIcon(pkg)
-                    val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
-                    postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
-                    recordStat(pkg, intercepted = false, summarised = true)
-                    log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+                        val appIcon = getAppIcon(pkg)
+                        val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
+                        postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
+                        recordStat(pkg, intercepted = false, summarised = true)
+                        log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+                    }
                 } else {
                     log("error", "No AI summary for $name — check provider/key/model in Settings")
                 }
@@ -336,6 +341,32 @@ class NotificationService : NotificationListenerService() {
             handler.postDelayed(runnable, DEBOUNCE_MS)
             log("info", "Below threshold ($count/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
         }
+    }
+
+    /**
+     * Detects AI responses that indicate no new content vs actual summaries.
+     * Returns true if the response should be skipped (no meaningful update).
+     */
+    private fun isNoChangeResponse(text: String): Boolean {
+        val lower = text.lowercase()
+        // Common patterns AI uses to say "nothing changed"
+        val noChangePatterns = listOf(
+            "no new notifications",
+            "no new messages",
+            "no new updates",
+            "status remains unchanged",
+            "remains unchanged",
+            "nothing has changed",
+            "no change",
+            "no updates",
+            "still the same",
+            "unchanged from",
+            "no additional",
+            "no further updates",
+            "previous summary still applies",
+            "same as before"
+        )
+        return noChangePatterns.any { pattern -> lower.contains(pattern) }
     }
 
     private fun extractConversationId(extras: android.os.Bundle, title: String): String? {
@@ -929,7 +960,7 @@ Please provide an updated summary that incorporates both the previous context an
                             msg: String, hadImage: Boolean) {
         try {
             val sp = sp()
-            val key = "flutter.notification_history"
+            val key = "notification_history"
             val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
             val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date())
             arr.put(JSONObject().apply {
