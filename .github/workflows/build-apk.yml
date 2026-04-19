@@ -31,8 +31,16 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
+      - name: List APK files
+        run: |
+          echo "=== Looking for APK files ==="
+          find build -name "*.apk" -type f 2>/dev/null | head -20
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "flutter-apk dir not found"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: notify-ai-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+          if-no-files-found: error
