@@ -276,8 +276,6 @@ class NotificationService : NotificationListenerService() {
         }
 
         val threshold = spInt("notification_threshold", 2)
-        val rawThreshold = sp().getString("flutter.notification_threshold", null)
-        log("info", "Threshold debug: spInt() returned $threshold, raw value from prefs: $rawThreshold")
         val count = group.notifications.size
         log("info", "CAPTURED #$count from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
 
