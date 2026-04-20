@@ -482,15 +482,21 @@ class NotificationService : NotificationListenerService() {
 
         // Build prompt - keep it simple and direct
         // Custom prompt variables available:
-        //   {app_name}      - Display name of the app (e.g., "WhatsApp")
-        //   {notifications} - Formatted list of notifications as bullet points
-        //   {count}         - Number of notifications being summarized
+        //   {app_name}          - Display name of the app (e.g., "WhatsApp")
+        //   {notifications}     - Formatted list of notifications as bullet points
+        //   {count}             - Number of notifications being summarized
+        //   {length}            - Summary length setting (1=brief, 2=balanced, 3=detailed)
+        //   {length_instruction} - Full length instruction text for the AI
+        //   {hint}              - Concise hint for the AI (e.g., "in one very brief sentence")
         val prompt = if (customPrompt.isNotEmpty()) {
             // User-defined custom prompt - substitute variables
             customPrompt
                 .replace("{app_name}", name)
                 .replace("{notifications}", msgs)
                 .replace("{count}", notifications.size.toString())
+                .replace("{length}", length.toString())
+                .replace("{length_instruction}", lengthInstruction)
+                .replace("{hint}", hint)
         } else {
             // Default prompt - simple and direct
             if (previousSummary != null) {
