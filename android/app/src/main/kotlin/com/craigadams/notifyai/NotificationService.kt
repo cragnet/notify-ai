@@ -984,7 +984,7 @@ Be direct and concise."""
                             msg: String, hadImage: Boolean) {
         try {
             val sp = sp()
-            val key = "notification_history"
+            val key = "flutter.notification_history"
             val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
             val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date())
             arr.put(JSONObject().apply {
