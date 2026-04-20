@@ -359,7 +359,7 @@ class NotificationService : NotificationListenerService() {
      */
     private fun isNoChangeResponse(text: String): Boolean {
         val lower = text.lowercase()
-        // Common patterns AI uses to say "nothing changed"
+        // Common patterns AI uses to say "nothing changed" or "no content"
         val noChangePatterns = listOf(
             "no new notifications",
             "no new messages",
@@ -374,7 +374,16 @@ class NotificationService : NotificationListenerService() {
             "no additional",
             "no further updates",
             "previous summary still applies",
-            "same as before"
+            "same as before",
+            "no notification content",
+            "no notifications provided",
+            "no content provided",
+            "no notifications to summarize",
+            "nothing to summarize",
+            "no new notification content",
+            "no new content",
+            "cannot summarize",
+            "unable to summarize"
         )
         return noChangePatterns.any { pattern -> lower.contains(pattern) }
     }
