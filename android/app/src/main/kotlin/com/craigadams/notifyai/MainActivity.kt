@@ -1,6 +1,7 @@
 package com.craigadams.notifyai
 
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -60,6 +61,14 @@ class MainActivity : FlutterActivity() {
 
                 "isGeminiNanoAvailable" ->
                     result.success(isGeminiNanoAvailable())
+
+                "sendTestNotification" -> {
+                    val count = call.argument<Int>("count") ?: 1
+                    val appPackage = call.argument<String>("packageName") ?: "com.test.app"
+                    val appName = call.argument<String>("appName") ?: "Test App"
+                    sendTestNotifications(count, appPackage, appName)
+                    result.success(null)
+                }
 
                 else -> result.notImplemented()
             }
@@ -197,6 +206,33 @@ class MainActivity : FlutterActivity() {
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    private fun sendTestNotifications(count: Int, packageName: String, appName: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channelId = "notify_ai_test"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                android.app.NotificationChannel(channelId, "Test Notifications", android.app.NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+
+        for (i in 1..count) {
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.app.Notification.Builder(this, channelId)
+            } else {
+                @Suppress("DEPRECATION")
+                android.app.Notification.Builder(this)
+            }
+
+            builder.setContentTitle("$appName Test $i")
+                .setContentText("This is test notification $i of $count from $appName")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+
+            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
         }
     }
 }
