@@ -483,8 +483,12 @@ class NotificationService : NotificationListenerService() {
         log("info", "msgs variable length: ${msgs.length} chars")
 
         // Build prompt - keep it simple and direct
+        // Custom prompt variables available:
+        //   {app_name}      - Display name of the app (e.g., "WhatsApp")
+        //   {notifications} - Formatted list of notifications as bullet points
+        //   {count}         - Number of notifications being summarized
         val prompt = if (customPrompt.isNotEmpty()) {
-            // User-defined custom prompt
+            // User-defined custom prompt - substitute variables
             customPrompt
                 .replace("{app_name}", name)
                 .replace("{notifications}", msgs)
