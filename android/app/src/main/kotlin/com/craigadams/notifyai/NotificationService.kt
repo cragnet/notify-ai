@@ -468,57 +468,38 @@ class NotificationService : NotificationListenerService() {
         val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
         val customPrompt = spStr("custom_prompt", "")
 
-        // Build prompt with previous summary context and length instruction
-        val prompt = if (customPrompt.isNotEmpty()) {
-            // Include length instruction in custom prompt if it doesn't already specify length
-            val promptWithLength = if (customPrompt.contains("length", ignoreCase = true) ||
-                                         customPrompt.contains("brief", ignoreCase = true) ||
-                                         customPrompt.contains("detailed", ignoreCase = true) ||
-                                         customPrompt.contains("sentence", ignoreCase = true)) {
-                customPrompt
-            } else {
-                "$customPrompt\n\nLength requirement: $lengthInstruction"
-            }
+        // Debug: log what we're sending
+        log("info", "Building prompt for $name with ${buf.size} notifications")
+        log("info", "Notifications content: ${msgs.take(200)}")
 
-            val basePrompt = promptWithLength
+        // Build prompt - keep it simple and direct
+        val prompt = if (customPrompt.isNotEmpty()) {
+            // User-defined custom prompt
+            customPrompt
                 .replace("{app_name}", name)
                 .replace("{notifications}", msgs)
                 .replace("{count}", buf.size.toString())
-
-            // Include previous summary ONLY if conversations are related (same thread/chat)
-            if (previousSummary != null) {
-                """Previous context: $previousSummary
-
----
-
-New notifications from the SAME conversation thread:
-$basePrompt
-
-Task: Summarize ONLY the new notifications above. If they are related to the previous context, you may briefly mention the connection, but focus on the NEW content. $lengthInstruction
-
-IMPORTANT: Always provide a summary of the new notifications - never say "no new notifications" or "nothing to summarize"."""
-            } else {
-                basePrompt
-            }
         } else {
-            val basePrompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
-
-            // Include previous summary ONLY if conversations are related (same thread/chat)
+            // Default prompt - simple and direct
             if (previousSummary != null) {
-                """Previous context: $previousSummary
+                """You are summarizing notifications from $name.
 
----
+Previous summary: $previousSummary
 
-New messages from the SAME conversation:
+New notifications to summarize:
 $msgs
 
-Task: Summarize ONLY the new messages above. $lengthInstruction Be direct, no preamble.
-
-IMPORTANT: Always provide a summary of the new messages - never say "no new notifications" or "nothing to summarize"."""
+Provide a $hint that captures the new notifications. Be direct and concise."""
             } else {
-                basePrompt
+                """Summarize these $name notifications $hint:
+
+$msgs
+
+Be direct and concise."""
             }
         }
+
+        log("info", "Final prompt length: ${prompt.length} chars")
         val images = buf.mapNotNull { it.imageBase64 }
 
         return try {
@@ -603,7 +584,7 @@ IMPORTANT: Always provide a summary of the new messages - never say "no new noti
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
-                    put("content", "Provide a concise bullet summary. Reply with ONLY the bullet points, no other text or JSON.")
+                    put("content", "You are a notification summarizer. Your task is to summarize the notifications provided by the user. Always provide a summary - never say there are no notifications or nothing to summarize. Be concise and direct.")
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -615,9 +596,7 @@ IMPORTANT: Always provide a summary of the new messages - never say "no new noti
         val headers = mutableMapOf("Content-Type" to "application/json")
         if (apiKey.isNotEmpty()) headers["Authorization"] = "Bearer $apiKey"
 
-        log("info", "Ollama OpenAI-compat body: $body")
-        log("info", "Ollama OpenAI-compat headers: ${headers.keys}")
-        log("info", "Ollama OpenAI-compat body length: ${body.length}")
+        log("info", "Ollama OpenAI-compat prompt: ${prompt.take(300)}...")
 
         return try {
             val conn = openConn(URL(endpoint), headers, readTimeout = 60000)
@@ -627,12 +606,14 @@ IMPORTANT: Always provide a summary of the new messages - never say "no new noti
             val code = conn.responseCode
             log("info", "Ollama OpenAI-compat response code: $code")
             if (code == 200) {
-                val json = JSONObject(conn.inputStream.reader().readText())
+                val responseText = conn.inputStream.reader().readText()
+                log("info", "Ollama raw response: ${responseText.take(500)}")
+                val json = JSONObject(responseText)
                 val result = json.getJSONArray("choices")
                     .getJSONObject(0)
                     .getJSONObject("message")
                     .getString("content").trim()
-                log("success", "Ollama OpenAI-compat response OK — ${result.length} chars")
+                log("success", "Ollama OpenAI-compat response OK — ${result.length} chars: ${result.take(100)}")
                 return result
             }
             val errBody = conn.errorStream?.reader()?.readText()?.take(300) ?: "(no body)"
