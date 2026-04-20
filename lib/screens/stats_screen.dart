@@ -113,7 +113,7 @@ class _StatsScreenState extends State<StatsScreen> with WidgetsBindingObserver {
                       )),
                       const SizedBox(width: 12),
                       Expanded(child: _StatCard(
-                        label: 'Saved reading',
+                        label: 'Saved',
                         value: totalIntercepted == 0
                             ? '0%'
                             : '${((totalSummarised / totalIntercepted) * 100).round()}%',
@@ -143,7 +143,7 @@ class _StatsScreenState extends State<StatsScreen> with WidgetsBindingObserver {
                       children: [
                         _LegendDot(color: const Color(0xFF4A90D9), label: 'Intercepted'),
                         const SizedBox(width: 20),
-                        _LegendDot(color: const Color(0xFF6B9E78), label: 'Summarised'),
+                        _LegendDot(color: const Color(0xFF6B9E78), label: 'Summarised'), // Note: softWrap handles this
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -197,6 +197,7 @@ class _StatsScreenState extends State<StatsScreen> with WidgetsBindingObserver {
                                         fontSize: 12, fontWeight: FontWeight.w600))),
                                 Expanded(child: Text('Summarised',
                                     textAlign: TextAlign.center,
+                                    softWrap: false,
                                     style: TextStyle(color: Color(0xFF6B9E78),
                                         fontSize: 12, fontWeight: FontWeight.w600))),
                               ],
@@ -425,7 +426,7 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
           const SizedBox(height: 2),
-          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false),
         ],
       ),
     );
@@ -454,7 +455,7 @@ class _LegendDot extends StatelessWidget {
         children: [
           Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 12), softWrap: false, overflow: TextOverflow.ellipsis),
         ],
       );
 }
