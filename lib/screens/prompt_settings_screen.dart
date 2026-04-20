@@ -161,6 +161,40 @@ class _PromptSettingsScreenState extends State<PromptSettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF6B9E78).withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, color: const Color(0xFF6B9E78), size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Using with Summary Length',
+                            style: TextStyle(
+                              color: const Color(0xFF6B9E78),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'By default, custom prompts ignore the Summary Length slider. To use it, include {length_instruction} or {hint} in your prompt.',
+                        style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Text(
                   'Note: These variables are replaced at runtime with actual values.',
                   style: TextStyle(color: Colors.white38, fontSize: 12),
