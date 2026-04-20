@@ -15,10 +15,11 @@
 |---------|--------|-------|
 | BuzzKill notifications | ✅ Working | ClassCastException fix verified |
 | WhatsApp notifications | ✅ Working | Threshold and batching functional |
-| Custom AI prompts | ✅ Working | Full feature with import/export |
+| Custom AI prompts | ✅ Working | Full feature with {length} variables |
 | Stats file persistence | ✅ Working | Daily JSON files to app storage |
 | OpenAI provider | ✅ Working | Restored to provider list |
-| GitHub Actions build | ⚠️ In progress | Memory constraints on free tier |
+| GitHub Actions build | ✅ Working | Cloud builds functional |
+| History tab | ✅ Working | Fixed flutter. prefix issue |
 
 ## Open Issues
 

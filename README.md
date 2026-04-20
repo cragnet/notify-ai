@@ -64,9 +64,12 @@ Output: `build/app/outputs/flutter-apk/app-release.apk`
 
 ### Custom AI Prompt
 Go to Settings → Custom AI Prompt. Variables available:
-- `{app_name}` — Name of the app
-- `{notifications}` — List of notifications
+- `{app_name}` — Name of the app (e.g., "WhatsApp")
+- `{notifications}` — List of notifications as bullet points
 - `{count}` — Number of notifications
+- `{length}` — Summary length setting (1=brief, 2=balanced, 3=detailed)
+- `{length_instruction}` — Full length instruction for the AI
+- `{hint}` — Concise hint (e.g., "in one very brief sentence")
 
 ### File Persistence
 Stats are written to `/data/data/com.craigadams.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
