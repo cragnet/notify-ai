@@ -53,7 +53,8 @@ class NotificationService : NotificationListenerService() {
         var summary: String? = null,
         var summaryTimestamp: Long = 0,
         var notificationColor: Int? = null,
-        var packageName: String? = null
+        var packageName: String? = null,
+        var previousConversationIds: Set<String?> = emptySet()
     )
 
     // Per-package buffer for grouped notifications
@@ -306,8 +307,16 @@ class NotificationService : NotificationListenerService() {
             }
 
             executor.execute {
-                // Build prompt with previous summary context if available
-                val previousSummary = currentGroup.summary
+                // Check if new notifications share conversation IDs with previous batch
+                val newConversationIds = notificationsToProcess.map { it.conversationId }.toSet()
+                val hasRelatedConversation = currentGroup.previousConversationIds.isNotEmpty() &&
+                    newConversationIds.any { it != null && currentGroup.previousConversationIds.contains(it) }
+
+                // Only pass previous summary if conversations are related
+                val previousSummary = if (hasRelatedConversation) currentGroup.summary else null
+                if (currentGroup.summary != null && previousSummary == null) {
+                    log("info", "New batch has different conversations - starting fresh summary")
+                }
                 val summary = callAI(pkg, notificationsToProcess, previousSummary)
 
                 if (summary != null) {
@@ -315,9 +324,10 @@ class NotificationService : NotificationListenerService() {
                     if (isNoChangeResponse(summary)) {
                         log("info", "AI indicated no change for $name — skipping notification: \"${summary.take(80)}\"")
                     } else {
-                        // Store the summary for future updates
+                        // Store the summary and conversation IDs for future updates
                         currentGroup.summary = summary
                         currentGroup.summaryTimestamp = System.currentTimeMillis()
+                        currentGroup.previousConversationIds = notificationsToProcess.map { it.conversationId }.toSet()
 
                         val appIcon = getAppIcon(pkg)
                         val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
@@ -466,27 +476,36 @@ class NotificationService : NotificationListenerService() {
                 .replace("{notifications}", msgs)
                 .replace("{count}", buf.size.toString())
 
-            // Include previous summary for context if available
+            // Include previous summary ONLY if conversations are related (same thread/chat)
             if (previousSummary != null) {
-                """Previous summary: $previousSummary
+                """Previous context: $previousSummary
 
-New notifications to add to the summary:
+---
+
+New notifications from the SAME conversation thread:
 $basePrompt
 
-Please provide an updated summary that incorporates both the previous summary and new notifications. $lengthInstruction"""
+Task: Summarize ONLY the new notifications above. If they are related to the previous context, you may briefly mention the connection, but focus on the NEW content. $lengthInstruction
+
+IMPORTANT: Always provide a summary of the new notifications - never say "no new notifications" or "nothing to summarize"."""
             } else {
                 basePrompt
             }
         } else {
             val basePrompt = "Summarise these $name messages $hint. Be direct, no preamble:\n\n$msgs"
 
+            // Include previous summary ONLY if conversations are related (same thread/chat)
             if (previousSummary != null) {
-                """Previous summary: $previousSummary
+                """Previous context: $previousSummary
 
-New $name messages to add to the summary:
+---
+
+New messages from the SAME conversation:
 $msgs
 
-Please provide an updated summary that incorporates both the previous context and new messages. $lengthInstruction Be direct, no preamble."""
+Task: Summarize ONLY the new messages above. $lengthInstruction Be direct, no preamble.
+
+IMPORTANT: Always provide a summary of the new messages - never say "no new notifications" or "nothing to summarize"."""
             } else {
                 basePrompt
             }
