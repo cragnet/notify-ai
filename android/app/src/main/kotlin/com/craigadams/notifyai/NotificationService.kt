@@ -435,13 +435,20 @@ class NotificationService : NotificationListenerService() {
     // ── AI dispatch ────────────────────────────────────────────────────────────
 
     private fun callAI(pkg: String, buf: List<NotificationItem>, previousSummary: String? = null): String? {
+        // Defensive copy and validate
+        val notifications = buf.toList()
+        if (notifications.isEmpty()) {
+            log("error", "AI call with EMPTY notification list - this is a bug!")
+            return null
+        }
+
         val provider = spStr("ai_provider", "ollama")
         val apiKey  = spStr("api_key_$provider", "")
         val model   = spStr("model_$provider", "")
         val baseUrl = spStr("base_url_$provider", "")
         val length  = spInt("summary_length", 2)
 
-        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${buf.size} hasPrevious=${previousSummary != null}")
+        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${notifications.size} hasPrevious=${previousSummary != null}")
 
         if (model.isEmpty() && provider != "gemini_nano") {
             log("error", "AI SKIP: no model set for $provider — configure in AI Provider settings"); return null
@@ -467,12 +474,13 @@ class NotificationService : NotificationListenerService() {
         }
 
         val name = appName(pkg)
-        val msgs = buf.joinToString("\n") { "• ${it.title}: ${it.text}" }
+        val msgs = notifications.joinToString("\n") { "• ${it.title}: ${it.text}" }
         val customPrompt = spStr("custom_prompt", "")
 
         // Debug: log what we're sending
-        log("info", "Building prompt for $name with ${buf.size} notifications")
+        log("info", "Building prompt for $name with ${notifications.size} notifications")
         log("info", "Notifications content: ${msgs.take(200)}")
+        log("info", "msgs variable length: ${msgs.length} chars")
 
         // Build prompt - keep it simple and direct
         val prompt = if (customPrompt.isNotEmpty()) {
@@ -480,7 +488,7 @@ class NotificationService : NotificationListenerService() {
             customPrompt
                 .replace("{app_name}", name)
                 .replace("{notifications}", msgs)
-                .replace("{count}", buf.size.toString())
+                .replace("{count}", notifications.size.toString())
         } else {
             // Default prompt - simple and direct
             if (previousSummary != null) {
@@ -502,7 +510,8 @@ Be direct and concise."""
         }
 
         log("info", "Final prompt length: ${prompt.length} chars")
-        val images = buf.mapNotNull { it.imageBase64 }
+        log("info", "Full prompt: $prompt")
+        val images = notifications.mapNotNull { it.imageBase64 }
 
         return try {
             when (provider) {
