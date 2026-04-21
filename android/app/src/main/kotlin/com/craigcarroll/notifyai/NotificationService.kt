@@ -326,11 +326,52 @@ class NotificationService : NotificationListenerService() {
 
         log("info", "[TEST] Threshold check: conv=$convCount, total=$totalCount, threshold=$threshold")
 
+        // Create runnable to process this app's notifications
+        val runnable = Runnable {
+            val currentGroup = buffer[pkg] ?: return@Runnable
+            val currentThreshold = spInt("notification_threshold", 2)
+            val allNotifications = currentGroup.getAllPendingNotifications()
+            val currentTotal = allNotifications.size
+
+            log("info", "[TEST] RUNNABLE CHECK for $name: total=$currentTotal, threshold=$currentThreshold")
+
+            if (currentTotal < currentThreshold) {
+                log("info", "[TEST] DEFERRING $name - only $currentTotal total notifications, need $currentThreshold")
+                return@Runnable
+            }
+
+            debounce.remove(pkg)
+            val processedKeys = allNotifications.map { it.sbnKey }.toSet()
+            log("info", "[TEST] Processing $currentTotal notification(s) from $name")
+
+            // Clear processed notifications
+            currentGroup.clearProcessedNotifications(processedKeys)
+            currentGroup.notifications.removeAll { it.sbnKey in processedKeys }
+
+            executor.execute {
+                val previousSummary = currentGroup.summary
+                val summary = callAI(pkg, allNotifications, previousSummary)
+                if (summary != null) {
+                    currentGroup.summary = summary
+                    currentGroup.summaryTimestamp = System.currentTimeMillis()
+                    val appIcon = getAppIcon(pkg)
+                    val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
+                    val notifId = currentGroup.getOrCreateNotificationId("summary")
+                    postSummary(pkg, summary, emptyList(), currentTotal, appIcon, notificationColor, notifId)
+                    log("success", "[TEST] AI summary posted for $name: \"${summary.take(100)}\"")
+                } else {
+                    log("error", "[TEST] No AI summary for $name — check provider/key/model in Settings")
+                }
+            }
+        }
+
+        debounce[pkg] = runnable
         if (totalCount >= threshold) {
-            log("info", "[TEST] Threshold met ($totalCount >= $threshold) — scheduling summary")
-            scheduleSummary(pkg, group)
+            handler.postDelayed(runnable, 800L)
+            log("info", "[TEST] Threshold met ($totalCount >= $threshold) — triggering in 800ms")
         } else {
-            log("info", "[TEST] Below threshold ($totalCount/$threshold) — waiting for more")
+            handler.postDelayed(runnable, DEBOUNCE_MS)
+            log("info", "[TEST] Below threshold ($totalCount/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
         }
     }
 
