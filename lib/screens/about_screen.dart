@@ -181,10 +181,81 @@ class _AboutScreenState extends State<AboutScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+            const Text(
+              'Test Notifications',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white70,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _TestButton(
+                    label: 'Single Conversation',
+                    description: '3 messages from same chat',
+                    icon: Icons.chat_bubble,
+                    onTap: () => _sendTestNotifications('single', 3),
+                  ),
+                  const SizedBox(height: 12),
+                  _TestButton(
+                    label: 'Multi Conversation',
+                    description: '4 messages from different chats',
+                    icon: Icons.forum,
+                    onTap: () => _sendTestNotifications('multi_conversation', 4),
+                  ),
+                  const SizedBox(height: 12),
+                  _TestButton(
+                    label: 'Duplicate Messages',
+                    description: '3 identical messages (test dedupe)',
+                    icon: Icons.content_copy,
+                    onTap: () => _sendTestNotifications('duplicates', 3),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _sendTestNotifications(String testType, int count) async {
+    const platform = MethodChannel('com.craigcarroll.notifyai/permissions');
+    try {
+      await platform.invokeMethod('sendTestNotification', {
+        'count': count,
+        'packageName': 'com.whatsapp',
+        'appName': 'WhatsApp',
+        'testType': testType,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sent $count test notifications'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
 
@@ -260,6 +331,52 @@ class _ProviderItem extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TestButton extends StatelessWidget {
+  final String label;
+  final String description;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _TestButton({
+    required this.label,
+    required this.description,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A3A2E),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF6B9E78), size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 2),
+                  Text(description, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                ],
+              ),
+            ),
+            const Icon(Icons.send, color: Color(0xFF6B9E78), size: 18),
+          ],
+        ),
+      ),
     );
   }
 }

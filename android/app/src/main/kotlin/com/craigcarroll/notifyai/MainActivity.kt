@@ -66,7 +66,8 @@ class MainActivity : FlutterActivity() {
                     val count = call.argument<Int>("count") ?: 1
                     val appPackage = call.argument<String>("packageName") ?: "com.test.app"
                     val appName = call.argument<String>("appName") ?: "Test App"
-                    sendTestNotifications(count, appPackage, appName)
+                    val testType = call.argument<String>("testType") ?: "single" // single, multi_conversation, duplicates
+                    sendTestNotifications(count, appPackage, appName, testType)
                     result.success(null)
                 }
 
@@ -209,7 +210,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun sendTestNotifications(count: Int, packageName: String, appName: String) {
+    private fun sendTestNotifications(count: Int, packageName: String, appName: String, testType: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         val channelId = "notify_ai_test"
 
@@ -219,20 +220,81 @@ class MainActivity : FlutterActivity() {
             )
         }
 
-        for (i in 1..count) {
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                android.app.Notification.Builder(this, channelId)
-            } else {
-                @Suppress("DEPRECATION")
-                android.app.Notification.Builder(this)
-            }
+        when (testType) {
+            "duplicates" -> sendDuplicateTestNotifications(count, nm, channelId, packageName, appName)
+            "multi_conversation" -> sendMultiConversationTestNotifications(count, nm, channelId, packageName, appName)
+            else -> sendSingleConversationTestNotifications(count, nm, channelId, packageName, appName)
+        }
+    }
 
-            builder.setContentTitle("$appName Test $i")
-                .setContentText("This is test notification $i of $count from $appName")
+    private fun sendSingleConversationTestNotifications(count: Int, nm: android.app.NotificationManager, channelId: String, packageName: String, appName: String) {
+        // All notifications from same sender/conversation
+        val sender = listOf("Alice", "Bob", "Carol").random()
+        val conversation = "General Chat"
+
+        for (i in 1..count) {
+            val builder = createTestNotificationBuilder(nm, channelId)
+            builder.setContentTitle("$conversation: ~ $sender")
+                .setContentText("Test message $i: Hey, just testing the notification summary feature!")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
+                // Add conversation metadata for grouping
+                .setGroup("test_group_$packageName")
 
             nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            Thread.sleep(100) // Small delay so notifications arrive separately
+        }
+    }
+
+    private fun sendMultiConversationTestNotifications(count: Int, nm: android.app.NotificationManager, channelId: String, packageName: String, appName: String) {
+        // Notifications from different conversations
+        val conversations = listOf(
+            "Family Group" to listOf("Mom", "Dad", "Sister"),
+            "Work Chat" to listOf("Boss", "Colleague", "HR"),
+            "Friends" to listOf("Bestie", "Gym Buddy", "Gamer Friend")
+        )
+
+        for (i in 1..count) {
+            val (conversation, senders) = conversations[i % conversations.size]
+            val sender = senders.random()
+            val builder = createTestNotificationBuilder(nm, channelId)
+
+            builder.setContentTitle("$conversation: ~ $sender")
+                .setContentText("Message from $conversation - ${sender}: Test notification $i for multi-conversation testing")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .setGroup("test_group_$packageName")
+
+            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            Thread.sleep(100)
+        }
+    }
+
+    private fun sendDuplicateTestNotifications(count: Int, nm: android.app.NotificationManager, channelId: String, packageName: String, appName: String) {
+        // Send same message multiple times (to test AI deduplication)
+        val sender = "Test User"
+        val conversation = "Test Chat"
+        val duplicateMessage = "This is the exact same message sent multiple times to test AI deduplication"
+
+        for (i in 1..count) {
+            val builder = createTestNotificationBuilder(nm, channelId)
+            builder.setContentTitle("$conversation: ~ $sender")
+                .setContentText(duplicateMessage)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .setGroup("test_group_$packageName")
+
+            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            Thread.sleep(100)
+        }
+    }
+
+    private fun createTestNotificationBuilder(nm: android.app.NotificationManager, channelId: String): android.app.Notification.Builder {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(this)
         }
     }
 }
