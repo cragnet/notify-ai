@@ -201,6 +201,13 @@ class _AboutScreenState extends State<AboutScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _TestButton(
+                    label: 'Single Notification',
+                    description: '1 message (test threshold behavior)',
+                    icon: Icons.notifications,
+                    onTap: () => _sendTestNotifications('single', 1),
+                  ),
+                  const SizedBox(height: 12),
+                  _TestButton(
                     label: 'Single Conversation',
                     description: '3 messages from same chat',
                     icon: Icons.chat_bubble,
