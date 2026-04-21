@@ -597,23 +597,34 @@ class NotificationService : NotificationListenerService() {
 
         val name = appName(pkg)
 
+        // Deduplicate notifications by content (same title+text = same message)
+        // This prevents WhatsApp from sending duplicate content with different keys
+        val uniqueNotifications = notifications.distinctBy { "${it.title}:${it.text}" }
+        val dupesRemoved = notifications.size - uniqueNotifications.size
+        if (dupesRemoved > 0) {
+            log("info", "Removed $dupesRemoved duplicate notification(s) by content")
+        }
+
         // Group notifications by sender/conversation for better AI understanding
-        val groupedBySender = notifications.groupBy { it.conversationId ?: it.title }
+        val groupedBySender = uniqueNotifications.groupBy { it.conversationId ?: it.title }
         val msgs = if (groupedBySender.size > 1) {
             // Multiple senders - group them with headers
             groupedBySender.entries.joinToString("\n\n") { (sender, notifs) ->
-                val messageLines = notifs.joinToString("\n") { "• ${it.text}" }
+                // Also dedupe within each sender group
+                val uniqueTexts = notifs.distinctBy { it.text }
+                val messageLines = uniqueTexts.joinToString("\n") { "• ${it.text}" }
                 "**$sender:**\n$messageLines"
             }
         } else {
-            // Single sender - simple bullet list
-            notifications.joinToString("\n") { "• ${it.title}: ${it.text}" }
+            // Single sender - simple bullet list, deduped
+            val uniqueTexts = uniqueNotifications.distinctBy { it.text }
+            uniqueTexts.joinToString("\n") { "• ${it.title}: ${it.text}" }
         }
 
         val customPrompt = spStr("custom_prompt", "")
 
         // Debug: log what we're sending
-        log("info", "Building prompt for $name with ${notifications.size} notifications from ${groupedBySender.size} sender(s)")
+        log("info", "Building prompt for $name with ${uniqueNotifications.size} unique notifications (was ${notifications.size}) from ${groupedBySender.size} sender(s)")
         log("info", "Notifications content: ${msgs.take(200)}")
         log("info", "msgs variable length: ${msgs.length} chars")
 
