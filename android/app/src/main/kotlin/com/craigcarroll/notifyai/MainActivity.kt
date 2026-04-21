@@ -233,15 +233,22 @@ class MainActivity : FlutterActivity() {
         val conversation = "General Chat"
 
         for (i in 1..count) {
+            val title = "$conversation: ~ $sender"
+            val text = "Test message $i: Hey, just testing the notification summary feature!"
+
             val builder = createTestNotificationBuilder(nm, channelId)
-            builder.setContentTitle("$conversation: ~ $sender")
-                .setContentText("Test message $i: Hey, just testing the notification summary feature!")
+            builder.setContentTitle(title)
+                .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 // Add conversation metadata for grouping
                 .setGroup("test_group_$packageName")
 
             nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+
+            // Also inject into NotificationService for logging/processing
+            NotificationService.injectTestNotification(packageName, title, text, conversation)
+
             Thread.sleep(100) // Small delay so notifications arrive separately
         }
     }
@@ -257,15 +264,21 @@ class MainActivity : FlutterActivity() {
         for (i in 1..count) {
             val (conversation, senders) = conversations[i % conversations.size]
             val sender = senders.random()
+            val title = "$conversation: ~ $sender"
+            val text = "Message from $conversation - ${sender}: Test notification $i for multi-conversation testing"
             val builder = createTestNotificationBuilder(nm, channelId)
 
-            builder.setContentTitle("$conversation: ~ $sender")
-                .setContentText("Message from $conversation - ${sender}: Test notification $i for multi-conversation testing")
+            builder.setContentTitle(title)
+                .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 .setGroup("test_group_$packageName")
 
             nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+
+            // Also inject into NotificationService for logging/processing
+            NotificationService.injectTestNotification(packageName, title, text, conversation)
+
             Thread.sleep(100)
         }
     }
@@ -277,14 +290,19 @@ class MainActivity : FlutterActivity() {
         val duplicateMessage = "This is the exact same message sent multiple times to test AI deduplication"
 
         for (i in 1..count) {
+            val title = "$conversation: ~ $sender"
             val builder = createTestNotificationBuilder(nm, channelId)
-            builder.setContentTitle("$conversation: ~ $sender")
+            builder.setContentTitle(title)
                 .setContentText(duplicateMessage)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 .setGroup("test_group_$packageName")
 
             nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+
+            // Also inject into NotificationService for logging/processing
+            NotificationService.injectTestNotification(packageName, title, duplicateMessage, conversation)
+
             Thread.sleep(100)
         }
     }

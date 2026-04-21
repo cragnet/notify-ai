@@ -39,6 +39,21 @@ class NotificationService : NotificationListenerService() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
+    companion object {
+        private var instance: NotificationService? = null
+
+        @JvmStatic
+        fun injectTestNotification(pkg: String, title: String, text: String, conversationId: String?) {
+            val service = instance
+            if (service != null) {
+                service.log("info", "[TEST] Injecting test notification: pkg=$pkg, title=$title, text=$text")
+                service.handleTestNotification(pkg, title, text, conversationId)
+            } else {
+                Log.w("NotifyAI", "[TEST] Cannot inject - service not running")
+            }
+        }
+    }
+
     data class NotificationItem(
         val title: String,
         val text: String,
@@ -183,6 +198,7 @@ class NotificationService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        instance = this
         log("success", "=== Listener CONNECTED ===")
 
         // Elevate to foreground service so OS doesn't kill this process
@@ -259,6 +275,62 @@ class NotificationService : NotificationListenerService() {
             val stack = e.stackTrace.take(5).joinToString(" ") { "${it.fileName}:${it.lineNumber}" }
             log("error", "ClassCastException: ${e.message} at $stack")
             throw e
+        }
+    }
+
+    // Handle test notifications injected from MainActivity (for troubleshooting)
+    private fun handleTestNotification(pkg: String, title: String, text: String, conversationId: String?) {
+        log("info", "[TEST] --- Notification from: $pkg ---")
+
+        if (!spBool("service_enabled", true)) { log("info", "[TEST] Service disabled"); return }
+
+        val selected = spList("enabled_apps_set")
+        if (selected.isEmpty()) { log("warn", "[TEST] No apps selected"); return }
+        if (!selected.contains(pkg)) { log("info", "[TEST] $pkg not selected — skipping"); return }
+
+        val name = appName(pkg)
+
+        // Create notification item directly
+        val newItem = NotificationItem(
+            title = title,
+            text = text,
+            actions = emptyList(),
+            sbnKey = "test_${System.currentTimeMillis()}",
+            imageBase64 = null,
+            timestamp = System.currentTimeMillis(),
+            conversationId = conversationId
+        )
+
+        val contentHash = newItem.computeHash()
+        val itemWithHash = newItem.copy(contentHash = contentHash)
+
+        // Check for content-based duplicates
+        val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
+        val hashDuplicate = group.getAllPendingNotifications().find { it.contentHash == contentHash }
+        if (hashDuplicate != null) {
+            log("info", "[TEST] Duplicate content detected (hash match) - skipping")
+            return
+        }
+
+        // Add to buffer
+        group.addToConversation(itemWithHash)
+        group.notifications.add(itemWithHash)
+        saveHistory(pkg, name, title, text, false)
+        recordStat(pkg, intercepted = true, summarised = false)
+        log("info", "[TEST] Added test notification to conversation '$conversationId' for $name")
+
+        // Check threshold and trigger
+        val threshold = spInt("notification_threshold", 2)
+        val convCount = group.getConversationCount(conversationId)
+        val totalCount = group.notifications.size
+
+        log("info", "[TEST] Threshold check: conv=$convCount, total=$totalCount, threshold=$threshold")
+
+        if (totalCount >= threshold) {
+            log("info", "[TEST] Threshold met ($totalCount >= $threshold) — scheduling summary")
+            scheduleSummary(pkg, group)
+        } else {
+            log("info", "[TEST] Below threshold ($totalCount/$threshold) — waiting for more")
         }
     }
 
