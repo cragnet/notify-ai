@@ -230,7 +230,7 @@ class _AboutScreenState extends State<AboutScreen> {
   }
 
   Future<void> _sendTestNotifications(String testType, int count) async {
-    const platform = MethodChannel('com.craigcarroll.notifyai/permissions');
+    const platform = MethodChannel('com.craigadams.notifyai/permissions');
     try {
       await platform.invokeMethod('sendTestNotification', {
         'count': count,
