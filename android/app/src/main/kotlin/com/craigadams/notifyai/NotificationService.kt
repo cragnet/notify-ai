@@ -55,7 +55,47 @@ class NotificationService : NotificationListenerService() {
         var notificationColor: Int? = null,
         var packageName: String? = null,
         var previousConversationIds: Set<String?> = emptySet()
-    )
+    ) {
+        // Track notifications per conversation for per-conversation thresholds
+        val conversationBuffers: MutableMap<String?, MutableList<NotificationItem>> = mutableMapOf()
+
+        fun getConversationCount(conversationId: String?): Int {
+            return conversationBuffers[conversationId]?.size ?: 0
+        }
+
+        fun addToConversation(item: NotificationItem) {
+            val convId = item.conversationId
+            conversationBuffers.getOrPut(convId) { mutableListOf() }.add(item)
+        }
+
+        fun removeFromConversation(conversationId: String?, sbnKey: String): Boolean {
+            val convList = conversationBuffers[conversationId] ?: return false
+            val index = convList.indexOfFirst { it.sbnKey == sbnKey }
+            if (index >= 0) {
+                convList.removeAt(index)
+                if (convList.isEmpty()) {
+                    conversationBuffers.remove(conversationId)
+                }
+                return true
+            }
+            return false
+        }
+
+        fun getNotificationsForConversation(conversationId: String?): List<NotificationItem> {
+            return conversationBuffers[conversationId]?.toList() ?: emptyList()
+        }
+
+        fun getAllPendingNotifications(): List<NotificationItem> {
+            return conversationBuffers.values.flatMap { it.toList() }
+        }
+
+        fun clearProcessedNotifications(processedIds: Set<String>) {
+            conversationBuffers.forEach { (convId, list) ->
+                list.removeAll { it.sbnKey in processedIds }
+            }
+            conversationBuffers.entries.removeAll { it.value.isEmpty() }
+        }
+    }
 
     // Per-package buffer for grouped notifications
     private val buffer = mutableMapOf<String, NotificationGroup>()
@@ -242,9 +282,8 @@ class NotificationService : NotificationListenerService() {
         // Get or create the notification group for this package
         val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
 
-        // Check if this is an update to an existing notification (same key)
-        val existingIndex = group.notifications.indexOfFirst { it.sbnKey == sbn.key }
-        val isNewNotification = existingIndex < 0
+        // Check if this is an update to an existing notification (same key in any conversation)
+        val existingItem = group.getAllPendingNotifications().find { it.sbnKey == sbn.key }
 
         val newItem = NotificationItem(
             title = title,
@@ -256,16 +295,20 @@ class NotificationService : NotificationListenerService() {
             conversationId = conversationId
         )
 
-        if (isNewNotification) {
-            // Add new notification - record stats and history only for new notifications
-            group.notifications.add(newItem)
+        if (existingItem == null) {
+            // Add new notification to conversation buffer
+            group.addToConversation(newItem)
+            group.notifications.add(newItem) // Keep for backwards compatibility
             saveHistory(pkg, name, title, text, image != null)
             recordStat(pkg, intercepted = true, summarised = false)
-            log("info", "Added new notification to group for $name")
+            log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
-            // Update existing notification - don't count again
-            group.notifications[existingIndex] = newItem
-            log("info", "Updated existing notification #$existingIndex for $name")
+            // Update existing notification - remove old and add updated
+            group.removeFromConversation(existingItem.conversationId, existingItem.sbnKey)
+            group.notifications.removeAll { it.sbnKey == sbn.key }
+            group.addToConversation(newItem)
+            group.notifications.add(newItem)
+            log("info", "Updated existing notification in conversation '$conversationId' for $name")
         }
 
         // Get notification color if set
@@ -276,80 +319,133 @@ class NotificationService : NotificationListenerService() {
         }
 
         val threshold = spInt("notification_threshold", 2)
-        val count = group.notifications.size
-        log("info", "CAPTURED #$count from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
+        val convCount = group.getConversationCount(conversationId)
+        val totalCount = group.getAllPendingNotifications().size
+        log("info", "CAPTURED conv=$convCount/total=$totalCount from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
 
-        // Cancel any pending debounce for this app
-        debounce[pkg]?.let { handler.removeCallbacks(it) }
+        // For notification updates: only restart debounce if notification is new
+        // This prevents the same notification from resetting the timer repeatedly
+        if (existingItem == null) {
+            // Cancel any pending debounce for this app only for NEW notifications
+            debounce[pkg]?.let { handler.removeCallbacks(it) }
+        } else {
+            log("info", "Notification update for $name - keeping existing debounce timer")
+        }
 
         val runnable = Runnable {
             val currentGroup = buffer[pkg] ?: return@Runnable
-            val notificationsToProcess = currentGroup.notifications.toList()
-            if (notificationsToProcess.isEmpty()) return@Runnable
+            val threshold = spInt("notification_threshold", 2)
 
-            // Clear only the notifications we're processing, keep the group for future updates
-            currentGroup.notifications.clear()
-            debounce.remove(pkg)
+            // Get actual counts at execution time
+            val totalCount = currentGroup.getAllPendingNotifications().size
+            val convCounts = currentGroup.conversationBuffers.map { (k, v) -> (k to v.size) }.toMap()
+            val maxConvCount = convCounts.values.maxOrNull() ?: 0
 
-            log("info", "Processing ${notificationsToProcess.size} notification(s) from $name")
+            log("info", "RUNNABLE CHECK for $name: total=$totalCount, maxConv=$maxConvCount, threshold=$threshold, convCounts=$convCounts")
 
-            // Collect all actions from all notifications
-            val allActions = notificationsToProcess.flatMap { it.actions }.distinctBy { it.title?.toString() }
-
-            // Only dismiss the specific notifications being processed, not all from the app
-            if (spBool("dismiss_on_app_usage", true)) {
-                notificationsToProcess.forEach { item ->
-                    try {
-                        cancelNotification(item.sbnKey)
-                        log("info", "Dismissed notification: ${item.sbnKey}")
-                    } catch (_: Exception) {}
-                }
+            // STRICT: Must have at least threshold notifications total AND in at least one conversation
+            if (totalCount < threshold) {
+                log("info", "DEFERRING $name - only $totalCount total notifications, need $threshold")
+                return@Runnable
             }
 
-            executor.execute {
-                // Check if new notifications share conversation IDs with previous batch
-                val newConversationIds = notificationsToProcess.map { it.conversationId }.toSet()
-                val hasRelatedConversation = currentGroup.previousConversationIds.isNotEmpty() &&
-                    newConversationIds.any { it != null && currentGroup.previousConversationIds.contains(it) }
+            // Find conversations that have reached threshold
+            val readyConversations = currentGroup.conversationBuffers.filter { it.value.size >= threshold }
 
-                // Only pass previous summary if conversations are related
-                val previousSummary = if (hasRelatedConversation) currentGroup.summary else null
-                if (currentGroup.summary != null && previousSummary == null) {
-                    log("info", "New batch has different conversations - starting fresh summary")
-                }
-                val summary = callAI(pkg, notificationsToProcess, previousSummary)
+            if (readyConversations.isEmpty()) {
+                log("info", "DEFERRING $name - no conversation has $threshold+ notifications (max was $maxConvCount)")
+                return@Runnable
+            }
 
-                if (summary != null) {
-                    // Skip posting if AI returns "no change" type messages
-                    if (isNoChangeResponse(summary)) {
-                        log("info", "AI indicated no change for $name — skipping notification: \"${summary.take(80)}\"")
-                    } else {
-                        // Store the summary and conversation IDs for future updates
-                        currentGroup.summary = summary
-                        currentGroup.summaryTimestamp = System.currentTimeMillis()
-                        currentGroup.previousConversationIds = notificationsToProcess.map { it.conversationId }.toSet()
+            debounce.remove(pkg)
 
-                        val appIcon = getAppIcon(pkg)
-                        val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
-                        postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
-                        recordStat(pkg, intercepted = false, summarised = true)
-                        log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+            // Process each conversation that has reached threshold
+            val conversationsToProcess = if (readyConversations.isNotEmpty()) {
+                readyConversations
+            } else {
+                // Fallback: process all conversations together if total reached threshold
+                currentGroup.conversationBuffers.toMap()
+            }
+
+            conversationsToProcess.forEach { (conversationId, notifications) ->
+                if (notifications.isEmpty()) return@forEach
+
+                val notificationsToProcess = notifications.toList()
+                val processedKeys = notificationsToProcess.map { it.sbnKey }.toSet()
+
+                log("info", "Processing ${notificationsToProcess.size} notification(s) from $name (conversation: ${conversationId ?: "ungrouped"})")
+
+                // Collect actions for this conversation
+                val allActions = notificationsToProcess.flatMap { it.actions }.distinctBy { it.title?.toString() }
+
+                // Dismiss processed notifications
+                if (spBool("dismiss_on_app_usage", true)) {
+                    notificationsToProcess.forEach { item ->
+                        try {
+                            cancelNotification(item.sbnKey)
+                            log("info", "Dismissed notification: ${item.sbnKey}")
+                        } catch (_: Exception) {}
                     }
-                } else {
-                    log("error", "No AI summary for $name — check provider/key/model in Settings")
+                }
+
+                // Clear processed notifications from buffers
+                currentGroup.clearProcessedNotifications(processedKeys)
+                currentGroup.notifications.removeAll { it.sbnKey in processedKeys }
+
+                executor.execute {
+                    // Check if this is a continuation of a previous summary for this conversation
+                    val hasRelatedConversation = currentGroup.previousConversationIds.isNotEmpty() &&
+                        conversationId != null && currentGroup.previousConversationIds.contains(conversationId)
+
+                    val previousSummary = if (hasRelatedConversation) currentGroup.summary else null
+                    if (currentGroup.summary != null && previousSummary == null) {
+                        log("info", "New batch has different conversations - starting fresh summary")
+                    }
+
+                    val summary = callAI(pkg, notificationsToProcess, previousSummary)
+
+                    if (summary != null) {
+                        if (isNoChangeResponse(summary)) {
+                            log("info", "AI indicated no change for $name — skipping notification: \"${summary.take(80)}\"")
+                        } else {
+                            // Store summary for this conversation
+                            currentGroup.summary = summary
+                            currentGroup.summaryTimestamp = System.currentTimeMillis()
+                            currentGroup.previousConversationIds = setOf(conversationId)
+
+                            val appIcon = getAppIcon(pkg)
+                            val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
+                            postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
+                            recordStat(pkg, intercepted = false, summarised = true)
+                            log("success", "AI summary posted for $name (conversation: ${conversationId ?: "ungrouped"}): \"${summary.take(100)}\"")
+                        }
+                    } else {
+                        log("error", "No AI summary for $name — check provider/key/model in Settings")
+                    }
                 }
             }
         }
 
-        debounce[pkg] = runnable
-        if (count >= threshold) {
-            // Threshold reached — fire after short delay to let any same-burst notifications land
-            handler.postDelayed(runnable, 800L)
-            log("info", "Threshold met ($count >= $threshold) — triggering in 800ms")
-        } else {
-            // Below threshold — wait longer for more notifications
-            handler.postDelayed(runnable, DEBOUNCE_MS)
-            log("info", "Below threshold ($count/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
+        // Only schedule processing for NEW notifications
+        // For updates, we already updated the content but keep the existing timer
+        if (existingItem == null) {
+            // Check if any conversation has reached threshold
+            val maxConvCount = group.conversationBuffers.values.maxOfOrNull { it.size } ?: 0
+
+            debounce[pkg] = runnable
+            if (maxConvCount >= threshold) {
+                // At least one conversation reached threshold — fire after short delay
+                handler.postDelayed(runnable, 800L)
+                log("info", "Threshold met (conversation has $maxConvCount >= $threshold) — triggering in 800ms")
+            } else if (totalCount >= threshold) {
+                // Multiple conversations combined reach threshold
+                handler.postDelayed(runnable, 800L)
+                log("info", "Threshold met ($totalCount total notifications across conversations) — triggering in 800ms")
+            } else {
+                // Below threshold — wait longer for more notifications
+                handler.postDelayed(runnable, DEBOUNCE_MS)
+                log("info", "Below threshold (max conversation: $maxConvCount/$threshold, total: $totalCount/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
+            }
         }
     }
 
@@ -472,11 +568,24 @@ class NotificationService : NotificationListenerService() {
         }
 
         val name = appName(pkg)
-        val msgs = notifications.joinToString("\n") { "• ${it.title}: ${it.text}" }
+
+        // Group notifications by sender/conversation for better AI understanding
+        val groupedBySender = notifications.groupBy { it.conversationId ?: it.title }
+        val msgs = if (groupedBySender.size > 1) {
+            // Multiple senders - group them with headers
+            groupedBySender.entries.joinToString("\n\n") { (sender, notifs) ->
+                val messageLines = notifs.joinToString("\n") { "• ${it.text}" }
+                "**$sender:**\n$messageLines"
+            }
+        } else {
+            // Single sender - simple bullet list
+            notifications.joinToString("\n") { "• ${it.title}: ${it.text}" }
+        }
+
         val customPrompt = spStr("custom_prompt", "")
 
         // Debug: log what we're sending
-        log("info", "Building prompt for $name with ${notifications.size} notifications")
+        log("info", "Building prompt for $name with ${notifications.size} notifications from ${groupedBySender.size} sender(s)")
         log("info", "Notifications content: ${msgs.take(200)}")
         log("info", "msgs variable length: ${msgs.length} chars")
 
@@ -488,6 +597,11 @@ class NotificationService : NotificationListenerService() {
         //   {length}            - Summary length setting (1=brief, 2=balanced, 3=detailed)
         //   {length_instruction} - Full length instruction text for the AI
         //   {hint}              - Concise hint for the AI (e.g., "in one very brief sentence")
+        // Determine if we have multiple senders to adjust the prompt
+        val senderContext = if (groupedBySender.size > 1) {
+            " Notifications are grouped by sender below."
+        } else ""
+
         val prompt = if (customPrompt.isNotEmpty()) {
             // User-defined custom prompt - substitute variables
             customPrompt
@@ -500,7 +614,7 @@ class NotificationService : NotificationListenerService() {
         } else {
             // Default prompt - simple and direct
             if (previousSummary != null) {
-                """You are summarizing notifications from $name.
+                """You are summarizing notifications from $name.$senderContext
 
 Previous summary: $previousSummary
 
