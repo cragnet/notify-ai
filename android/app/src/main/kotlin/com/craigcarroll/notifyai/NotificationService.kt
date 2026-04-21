@@ -344,6 +344,16 @@ class NotificationService : NotificationListenerService() {
             val processedKeys = allNotifications.map { it.sbnKey }.toSet()
             log("info", "[TEST] Processing $currentTotal notification(s) from $name")
 
+            // Dismiss processed notifications (same as real notifications)
+            if (spBool("dismiss_on_app_usage", true)) {
+                allNotifications.forEach { item ->
+                    try {
+                        cancelNotification(item.sbnKey)
+                        log("info", "[TEST] Dismissed notification: ${item.sbnKey}")
+                    } catch (_: Exception) {}
+                }
+            }
+
             // Clear processed notifications
             currentGroup.clearProcessedNotifications(processedKeys)
             currentGroup.notifications.removeAll { it.sbnKey in processedKeys }
