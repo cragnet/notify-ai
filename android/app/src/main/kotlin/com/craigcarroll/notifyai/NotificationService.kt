@@ -31,6 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.security.MessageDigest
 
 class NotificationService : NotificationListenerService() {
 
@@ -45,8 +46,16 @@ class NotificationService : NotificationListenerService() {
         val sbnKey: String,
         val imageBase64: String? = null,
         val timestamp: Long = System.currentTimeMillis(),
-        val conversationId: String? = null
-    )
+        val conversationId: String? = null,
+        val contentHash: String = ""  // Hash of title+text for duplicate detection
+    ) {
+        // Helper to compute content hash
+        fun computeHash(): String {
+            val content = "${title.lowercase().trim()}:${text.lowercase().trim()}"
+            return MessageDigest.getInstance("MD5").digest(content.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
+    }
 
     data class NotificationGroup(
         val notifications: MutableList<NotificationItem> = mutableListOf(),
@@ -295,7 +304,8 @@ class NotificationService : NotificationListenerService() {
         // Check if this is an update to an existing notification (same key in any conversation)
         val existingItem = group.getAllPendingNotifications().find { it.sbnKey == sbn.key }
 
-        val newItem = NotificationItem(
+        // Create item with hash computed from normalized content
+        val baseItem = NotificationItem(
             title = title,
             text = text,
             actions = actions,
@@ -304,6 +314,8 @@ class NotificationService : NotificationListenerService() {
             timestamp = System.currentTimeMillis(),
             conversationId = conversationId
         )
+        val contentHash = baseItem.computeHash()
+        val newItem = baseItem.copy(contentHash = contentHash)
 
         if (existingItem == null) {
             // Check if notification with this key already exists in ANY conversation (safety check)
@@ -313,13 +325,11 @@ class NotificationService : NotificationListenerService() {
                 return
             }
 
-            // Check for content-based duplicates (same title + text = same message)
+            // Check for content-based duplicates using hash
             // This catches WhatsApp updates with different keys but same content
-            val contentDuplicate = group.getAllPendingNotifications().find {
-                it.title == title && it.text == text
-            }
-            if (contentDuplicate != null) {
-                log("info", "Duplicate content detected (title+text match) - skipping notification with key ${sbn.key}")
+            val hashDuplicate = group.getAllPendingNotifications().find { it.contentHash == contentHash }
+            if (hashDuplicate != null) {
+                log("info", "Duplicate content detected (hash match) - skipping notification with key ${sbn.key}")
                 return
             }
 
@@ -330,9 +340,9 @@ class NotificationService : NotificationListenerService() {
             recordStat(pkg, intercepted = true, summarised = false)
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
-            // Update existing notification - but first check if content actually changed
-            if (existingItem.title == title && existingItem.text == text) {
-                log("info", "Notification update received but content unchanged - skipping")
+            // Update existing notification - but first check if content actually changed using hash
+            if (existingItem.contentHash == contentHash) {
+                log("info", "Notification update received but content unchanged (hash match) - skipping")
                 return
             }
 
