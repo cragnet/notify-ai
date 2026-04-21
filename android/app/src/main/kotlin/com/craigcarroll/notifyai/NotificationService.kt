@@ -306,6 +306,13 @@ class NotificationService : NotificationListenerService() {
         )
 
         if (existingItem == null) {
+            // Check if notification with this key already exists in ANY conversation (safety check)
+            val alreadyExists = group.getAllPendingNotifications().any { it.sbnKey == sbn.key }
+            if (alreadyExists) {
+                log("warn", "Notification ${sbn.key} already exists in buffer - skipping duplicate")
+                return
+            }
+
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
             group.notifications.add(newItem) // Keep for backwards compatibility
@@ -314,8 +321,18 @@ class NotificationService : NotificationListenerService() {
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
             // Update existing notification - remove old and add updated
-            group.removeFromConversation(existingItem.conversationId, existingItem.sbnKey)
-            group.notifications.removeAll { it.sbnKey == sbn.key }
+            // First remove from old conversation (use existingItem's conversation ID)
+            val removedOld = group.removeFromConversation(existingItem.conversationId, existingItem.sbnKey)
+            val removedFromList = group.notifications.removeAll { it.sbnKey == sbn.key }
+            log("info", "Removed old notification: convRemoved=$removedOld, listRemoved=$removedFromList")
+
+            // Also check if it exists in the new conversation (shouldn't happen, but safety check)
+            val existsInNewConv = group.getNotificationsForConversation(conversationId).any { it.sbnKey == sbn.key }
+            if (existsInNewConv) {
+                log("warn", "Notification ${sbn.key} already exists in conversation '$conversationId' - removing first")
+                group.removeFromConversation(conversationId, sbn.key)
+            }
+
             group.addToConversation(newItem)
             group.notifications.add(newItem)
             log("info", "Updated existing notification in conversation '$conversationId' for $name")
