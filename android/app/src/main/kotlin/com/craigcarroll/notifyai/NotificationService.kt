@@ -43,11 +43,11 @@ class NotificationService : NotificationListenerService() {
         private var instance: NotificationService? = null
 
         @JvmStatic
-        fun injectTestNotification(pkg: String, title: String, text: String, conversationId: String?) {
+        fun injectTestNotification(pkg: String, title: String, text: String, conversationId: String?, originalNotificationIds: List<Int>? = null) {
             val service = instance
             if (service != null) {
                 service.log("info", "[TEST] Injecting test notification: pkg=$pkg, title=$title, text=$text")
-                service.handleTestNotification(pkg, title, text, conversationId)
+                service.handleTestNotification(pkg, title, text, conversationId, originalNotificationIds)
             } else {
                 Log.w("NotifyAI", "[TEST] Cannot inject - service not running")
             }
@@ -279,7 +279,7 @@ class NotificationService : NotificationListenerService() {
     }
 
     // Handle test notifications injected from MainActivity (for troubleshooting)
-    private fun handleTestNotification(pkg: String, title: String, text: String, conversationId: String?) {
+    private fun handleTestNotification(pkg: String, title: String, text: String, conversationId: String?, originalNotificationIds: List<Int>? = null) {
         log("info", "[TEST] --- Notification from: $pkg ---")
 
         if (!spBool("service_enabled", true)) { log("info", "[TEST] Service disabled"); return }
@@ -367,8 +367,19 @@ class NotificationService : NotificationListenerService() {
                     val appIcon = getAppIcon(pkg)
                     val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
                     val notifId = currentGroup.getOrCreateNotificationId("summary")
-                    postSummary(pkg, summary, emptyList(), currentTotal, appIcon, notificationColor, notifId)
+                    postSummary(pkg, summary, emptyList(), currentTotal, appIcon, notificationColor, notifId!!)
                     log("success", "[TEST] AI summary posted for $name: \"${summary.take(100)}\"")
+
+                    // Cancel original test notifications so only summary remains
+                    originalNotificationIds?.forEach { id ->
+                        try {
+                            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            nm.cancel(id)
+                            log("info", "[TEST] Cancelled original test notification: id=$id")
+                        } catch (e: Exception) {
+                            log("warn", "[TEST] Failed to cancel test notification: $e")
+                        }
+                    }
                 } else {
                     log("error", "[TEST] No AI summary for $name — check provider/key/model in Settings")
                 }

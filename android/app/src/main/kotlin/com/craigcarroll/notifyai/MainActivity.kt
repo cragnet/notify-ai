@@ -227,29 +227,36 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // Track test notification IDs so service can cancel them after summarising
+    private val testNotificationIds = mutableListOf<Int>()
+
     private fun sendSingleConversationTestNotifications(count: Int, nm: android.app.NotificationManager, channelId: String, packageName: String, appName: String) {
         // All notifications from same sender/conversation
         val sender = listOf("Alice", "Bob", "Carol").random()
         val conversation = "General Chat"
+        testNotificationIds.clear()
 
         for (i in 1..count) {
             val title = "$conversation: ~ $sender"
             val text = "Test message $i: Hey, just testing the notification summary feature!"
+
+            // Use consistent ID that service can use to replace this notification
+            val notifId = "${packageName}:test:${System.currentTimeMillis()}:$i".hashCode()
+            testNotificationIds.add(notifId)
 
             val builder = createTestNotificationBuilder(nm, channelId)
             builder.setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
-                // Add conversation metadata for grouping
                 .setGroup("test_group_$packageName")
 
-            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            nm.notify(notifId, builder.build())
 
             // Also inject into NotificationService for logging/processing
-            NotificationService.injectTestNotification(packageName, title, text, conversation)
+            NotificationService.injectTestNotification(packageName, title, text, conversation, testNotificationIds)
 
-            Thread.sleep(100) // Small delay so notifications arrive separately
+            Thread.sleep(100)
         }
     }
 
@@ -260,6 +267,7 @@ class MainActivity : FlutterActivity() {
             "Work Chat" to listOf("Boss", "Colleague", "HR"),
             "Friends" to listOf("Bestie", "Gym Buddy", "Gamer Friend")
         )
+        testNotificationIds.clear()
 
         for (i in 1..count) {
             val (conversation, senders) = conversations[i % conversations.size]
@@ -268,16 +276,19 @@ class MainActivity : FlutterActivity() {
             val text = "Message from $conversation - ${sender}: Test notification $i for multi-conversation testing"
             val builder = createTestNotificationBuilder(nm, channelId)
 
+            val notifId = "${packageName}:test:${System.currentTimeMillis()}:$i".hashCode()
+            testNotificationIds.add(notifId)
+
             builder.setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true)
                 .setGroup("test_group_$packageName")
 
-            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            nm.notify(notifId, builder.build())
 
             // Also inject into NotificationService for logging/processing
-            NotificationService.injectTestNotification(packageName, title, text, conversation)
+            NotificationService.injectTestNotification(packageName, title, text, conversation, testNotificationIds)
 
             Thread.sleep(100)
         }
@@ -288,6 +299,7 @@ class MainActivity : FlutterActivity() {
         val sender = "Test User"
         val conversation = "Test Chat"
         val duplicateMessage = "This is the exact same message sent multiple times to test AI deduplication"
+        testNotificationIds.clear()
 
         for (i in 1..count) {
             val title = "$conversation: ~ $sender"
@@ -298,10 +310,13 @@ class MainActivity : FlutterActivity() {
                 .setAutoCancel(true)
                 .setGroup("test_group_$packageName")
 
-            nm.notify("test_${System.currentTimeMillis()}_$i".hashCode(), builder.build())
+            val notifId = "${packageName}:test:${System.currentTimeMillis()}:$i".hashCode()
+            testNotificationIds.add(notifId)
+
+            nm.notify(notifId, builder.build())
 
             // Also inject into NotificationService for logging/processing
-            NotificationService.injectTestNotification(packageName, title, duplicateMessage, conversation)
+            NotificationService.injectTestNotification(packageName, title, duplicateMessage, conversation, testNotificationIds)
 
             Thread.sleep(100)
         }
