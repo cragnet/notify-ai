@@ -313,6 +313,16 @@ class NotificationService : NotificationListenerService() {
                 return
             }
 
+            // Check for content-based duplicates (same title + text = same message)
+            // This catches WhatsApp updates with different keys but same content
+            val contentDuplicate = group.getAllPendingNotifications().find {
+                it.title == title && it.text == text
+            }
+            if (contentDuplicate != null) {
+                log("info", "Duplicate content detected (title+text match) - skipping notification with key ${sbn.key}")
+                return
+            }
+
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
             group.notifications.add(newItem) // Keep for backwards compatibility
@@ -320,6 +330,12 @@ class NotificationService : NotificationListenerService() {
             recordStat(pkg, intercepted = true, summarised = false)
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
+            // Update existing notification - but first check if content actually changed
+            if (existingItem.title == title && existingItem.text == text) {
+                log("info", "Notification update received but content unchanged - skipping")
+                return
+            }
+
             // Update existing notification - remove old and add updated
             // First remove from old conversation (use existingItem's conversation ID)
             val removedOld = group.removeFromConversation(existingItem.conversationId, existingItem.sbnKey)
@@ -335,7 +351,7 @@ class NotificationService : NotificationListenerService() {
 
             group.addToConversation(newItem)
             group.notifications.add(newItem)
-            log("info", "Updated existing notification in conversation '$conversationId' for $name")
+            log("info", "Updated existing notification in conversation '$conversationId' for $name (content changed)")
         }
 
         // Get notification color if set
