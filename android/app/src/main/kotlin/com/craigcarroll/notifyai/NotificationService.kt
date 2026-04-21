@@ -515,11 +515,27 @@ class NotificationService : NotificationListenerService() {
     private fun extractConversationId(extras: android.os.Bundle, title: String): String? {
         return try {
             // Try to get conversation title/sender from messaging style
-            extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+            val rawId = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
                 ?: extras.getCharSequence("android.messagingStyleUser.displayName")?.toString()
                 ?: title.takeIf { it.contains(":") }?.substringBefore(":")?.trim()
                 ?: title
+
+            // Normalize: strip patterns like "(2 messages)", "(3 new messages)" that WhatsApp adds
+            normalizeConversationId(rawId)
         } catch (_: Exception) { null }
+    }
+
+    /**
+     * Normalizes conversation ID by stripping app-added metadata like message counts.
+     * "General Chat (2 messages)" → "General Chat"
+     * "General Chat (3 new messages)" → "General Chat"
+     */
+    private fun normalizeConversationId(id: String?): String? {
+        if (id == null) return null
+
+        // Strip "(N messages)" or "(N new messages)" patterns
+        return id.replace(Regex("\\s*\\(\\d+\\s+(new\\s+)?messages?\\)$"), "").trim()
+            .takeIf { it.isNotEmpty() }
     }
 
     private fun getNotificationColor(pkg: String): Int? {
