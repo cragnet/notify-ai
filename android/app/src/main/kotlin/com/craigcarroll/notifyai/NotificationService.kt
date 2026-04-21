@@ -1,4 +1,4 @@
-package com.craigadams.notifyai
+package com.craigcarroll.notifyai
 
 import android.app.Notification
 import android.app.NotificationChannel

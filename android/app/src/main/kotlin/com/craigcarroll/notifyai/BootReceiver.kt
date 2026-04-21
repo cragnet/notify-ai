@@ -1,4 +1,4 @@
-package com.craigadams.notifyai
+package com.craigcarroll.notifyai
 
 import android.content.BroadcastReceiver
 import android.content.Context

@@ -17,7 +17,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace "com.craigadams.notifyai"
+    namespace "com.craigcarroll.notifyai"
     compileSdk flutter.compileSdkVersion
     // ndkVersion removed - not needed for this app
 
@@ -35,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.craigadams.notifyai"
+        applicationId "com.craigcarroll.notifyai"
         minSdk 26
         targetSdk flutter.targetSdkVersion
         versionCode localProperties.getProperty("flutter.versionCode")?.toInteger() ?: 1
