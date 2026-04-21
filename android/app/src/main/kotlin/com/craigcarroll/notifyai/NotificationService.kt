@@ -59,6 +59,16 @@ class NotificationService : NotificationListenerService() {
         // Track notifications per conversation for per-conversation thresholds
         val conversationBuffers: MutableMap<String?, MutableList<NotificationItem>> = mutableMapOf()
 
+        // Track notification IDs per conversation to update existing summaries
+        val conversationNotificationIds: MutableMap<String?, Int> = mutableMapOf()
+
+        fun getOrCreateNotificationId(conversationId: String?): Int {
+            return conversationNotificationIds.getOrPut(conversationId) {
+                // Generate consistent ID based on package + conversation
+                "${packageName}:conv:${conversationId}".hashCode()
+            }
+        }
+
         fun getConversationCount(conversationId: String?): Int {
             return conversationBuffers[conversationId]?.size ?: 0
         }
@@ -415,7 +425,8 @@ class NotificationService : NotificationListenerService() {
 
                             val appIcon = getAppIcon(pkg)
                             val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
-                            postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor)
+                            val notifId = currentGroup.getOrCreateNotificationId(conversationId)
+                            postSummary(pkg, summary, allActions, notificationsToProcess.size, appIcon, notificationColor, notifId)
                             recordStat(pkg, intercepted = false, summarised = true)
                             log("success", "AI summary posted for $name (conversation: ${conversationId ?: "ungrouped"}): \"${summary.take(100)}\"")
                         }
@@ -906,7 +917,8 @@ Be direct and concise."""
 
     private fun postSummary(pkg: String, summary: String,
                             actions: List<Notification.Action>, count: Int,
-                            appIcon: Bitmap? = null, notificationColor: Int? = null) {
+                            appIcon: Bitmap? = null, notificationColor: Int? = null,
+                            notificationId: Int? = null) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val groupId = "notify_ai_group_$pkg"
         val channelId = "notify_ai_v2_$pkg"   // v2 = HIGH importance; v1 channels were DEFAULT
@@ -983,10 +995,10 @@ Be direct and concise."""
             log("info", "No actions attached: retainActions=$retainActions, actionsEmpty=${actions.isEmpty()}")
         }
 
-        // Use unique ID so new summaries don't replace previous ones
-        val uniqueId = "${pkg}:summary:${System.currentTimeMillis()}".hashCode()
-        nm.notify(uniqueId, builder.build())
-        log("success", "Summary notification posted for $name (id=$uniqueId)")
+        // Use consistent notification ID per conversation to update existing summary
+        val finalNotificationId = notificationId ?: "${pkg}:summary:${System.currentTimeMillis()}".hashCode()
+        nm.notify(finalNotificationId, builder.build())
+        log("success", "Summary notification posted for $name (id=$finalNotificationId)")
     }
 
     private fun postStatusNotification(title: String, text: String) {
