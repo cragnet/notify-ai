@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class PermissionsService {
-  static const _ch = MethodChannel('com.craigadams.notifyai/permissions');
+  static const _ch = MethodChannel('com.craigcarroll.notifyai/permissions');
 
   static Future<bool> isNotificationListenerEnabled() async {
     try { return await _ch.invokeMethod('isNotificationListenerEnabled') ?? false; } catch (_) { return false; }

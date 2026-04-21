@@ -19,7 +19,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.craigadams.notifyai/permissions"
+    private val CHANNEL = "com.craigcarroll.notifyai/permissions"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

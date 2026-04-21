@@ -72,7 +72,7 @@ Go to Settings → Custom AI Prompt. Variables available:
 - `{hint}` — Concise hint (e.g., "in one very brief sentence")
 
 ### File Persistence
-Stats are written to `/data/data/com.craigadams.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
+Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
 
 ## Troubleshooting
 
