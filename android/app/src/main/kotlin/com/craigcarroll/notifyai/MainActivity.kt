@@ -214,8 +214,8 @@ class MainActivity : FlutterActivity() {
             runBlocking {
                 val generation = com.google.mlkit.genai.prompt.Generation.getClient()
                 val status = generation.checkStatus()
-                status == com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE ||
-                    status == com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE
+                status == com.google.mlkit.genai.common.FeatureStatus.AVAILABLE ||
+                    status == com.google.mlkit.genai.common.FeatureStatus.DOWNLOADABLE
             }
         } catch (e: Exception) {
             false

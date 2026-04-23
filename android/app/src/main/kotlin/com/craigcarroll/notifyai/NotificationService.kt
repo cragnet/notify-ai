@@ -1152,14 +1152,14 @@ Provide a clear, concise summary."""
                 val generation = com.google.mlkit.genai.prompt.Generation.getClient()
                 val status = generation.checkStatus()
                 when (status) {
-                    com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE -> {
+                    com.google.mlkit.genai.common.FeatureStatus.AVAILABLE -> {
                         val request = com.google.mlkit.genai.prompt.generateContentRequest(
                             com.google.mlkit.genai.prompt.TextPart(prompt)
                         ) {
                             maxOutputTokens = 150
                         }
                         val response = generation.generateContent(request)
-                        val text = response.text?.trim()
+                        val text = response.candidates[0].text?.trim()
                         if (text != null) {
                             log("success", "Gemini Nano response OK — ${text.length} chars")
                         } else {
@@ -1167,7 +1167,7 @@ Provide a clear, concise summary."""
                         }
                         text
                     }
-                    com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE -> {
+                    com.google.mlkit.genai.common.FeatureStatus.DOWNLOADABLE -> {
                         log("info", "Gemini Nano model downloadable — starting download")
                         generation.download().collect { }
                         log("info", "Gemini Nano download complete — retrying inference")
@@ -1177,9 +1177,9 @@ Provide a clear, concise summary."""
                             maxOutputTokens = 150
                         }
                         val response = generation.generateContent(request)
-                        response.text?.trim()
+                        response.candidates[0].text?.trim()
                     }
-                    com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADING -> {
+                    com.google.mlkit.genai.common.FeatureStatus.DOWNLOADING -> {
                         log("warn", "Gemini Nano model is downloading — skipping")
                         null
                     }
