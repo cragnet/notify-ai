@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.5] - 2026-04-23
+
+### Fixed
+
+- **Stale test notifications polluting summaries** — test notifications injected via "Send test notification" were accumulating in the buffer. If they didn't reach threshold, they stayed indefinitely and later combined with real notifications, producing summaries with old test content. Now stale test notifications are cleared before each new test injection.
+- **Notification dismissal race condition with WhatsApp** — when WhatsApp stacks messages, it updates the notification key. The old key dismissal had no effect, leaving the original notification visible. Added a 600ms fallback that scans active notifications for the package and cancels any remaining ones after summary posting.
+
 ## [2.0.4] - 2026-04-23
 
 ### Fixed

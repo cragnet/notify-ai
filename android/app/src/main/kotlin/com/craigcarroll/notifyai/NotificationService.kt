@@ -388,8 +388,16 @@ class NotificationService : NotificationListenerService() {
         val contentHash = newItem.computeHash()
         val itemWithHash = newItem.copy(contentHash = contentHash)
 
+        // Remove any stale test notifications from previous runs so they don't
+        // combine with real notifications and produce garbage summaries
+        group.getAllPendingNotifications()
+            .filter { it.sbnKey.startsWith("test_") }
+            .forEach {
+                group.removeFromConversation(it.conversationId, it.sbnKey)
+                group.notifications.removeAll { n -> n.sbnKey == it.sbnKey }
+            }
+
         // Check for content-based duplicates
-        val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
         val hashDuplicate = group.getAllPendingNotifications().find { it.contentHash == contentHash }
         if (hashDuplicate != null) {
             log("info", "[TEST] Duplicate content detected (hash match) - skipping")
@@ -622,10 +630,14 @@ class NotificationService : NotificationListenerService() {
             // Collect all actions
             val allActions = allNotifications.flatMap { it.actions }.distinctBy { it.title?.toString() }
 
-            // Dismiss processed notifications
+            // Dismiss processed notifications (skip test keys — they are not real system notifications)
             val activeKeys = if (spBool("dismiss_on_app_usage", true)) {
                 val active = mutableSetOf<String>()
                 allNotifications.forEach { item ->
+                    if (item.sbnKey.startsWith("test_")) {
+                        log("info", "Skipping dismiss for test notification: ${item.sbnKey}")
+                        return@forEach
+                    }
                     try {
                         cancelNotification(item.sbnKey)
                         log("info", "Dismissed notification: ${item.sbnKey}")
@@ -669,12 +681,15 @@ class NotificationService : NotificationListenerService() {
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
 
-                        // Verify originals were dismissed; retry any that remain
-                        if (activeKeys.isNotEmpty()) {
-                            handler.post {
-                                retryDismiss(pkg, activeKeys)
-                            }
-                        }
+                        // Verify originals were dismissed; retry any that remain.
+                        // Also catch notifications whose keys changed (e.g. WhatsApp stacking).
+                        handler.postDelayed({
+                            retryDismiss(pkg, activeKeys)
+                            // Fallback: dismiss any remaining active notifications from this package
+                            // that aren't our own summary. This handles apps that update notification
+                            // keys between capture and dismiss.
+                            dismissRemainingActive(pkg, notifId)
+                        }, 600)
                     }
                 } else {
                     log("error", "No AI summary for $name — enqueuing for retry. Check provider/key/model in Settings")
@@ -779,6 +794,32 @@ class NotificationService : NotificationListenerService() {
             }
         } catch (e: Exception) {
             log("error", "retryDismiss crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * Dismisses any remaining active notifications from the target package
+     * after a summary has been posted. This catches notifications whose keys
+     * changed between capture and dismiss (e.g. WhatsApp stacking updates).
+     * Skips our own summary notification.
+     */
+    private fun dismissRemainingActive(pkg: String, summaryNotifId: Int) {
+        try {
+            val active = getActiveNotifications()?.filter {
+                it.packageName == pkg && it.id != summaryNotifId
+            } ?: emptyList()
+            if (active.isEmpty()) return
+            log("info", "dismissRemainingActive: found ${active.size} remaining notification(s) from $pkg")
+            active.forEach { sbn ->
+                try {
+                    cancelNotification(sbn.key)
+                    log("info", "dismissRemainingActive: cancelled ${sbn.key}")
+                } catch (e: Exception) {
+                    log("warn", "dismissRemainingActive: failed to cancel ${sbn.key}: ${e.javaClass.simpleName}")
+                }
+            }
+        } catch (e: Exception) {
+            log("error", "dismissRemainingActive crash: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
