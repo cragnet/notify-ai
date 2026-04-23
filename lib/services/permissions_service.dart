@@ -43,6 +43,10 @@ class PermissionsService {
     try { return await _ch.invokeMethod('isGeminiNanoAvailable') ?? false; } catch (_) { return false; }
   }
 
+  static Future<bool> rescheduleDigestAlarms() async {
+    try { return await _ch.invokeMethod('rescheduleDigestAlarms') ?? false; } catch (_) { return false; }
+  }
+
   // POST_NOTIFICATIONS permission (Android 13+)
   static Future<bool> isPostNotificationsGranted() async {
     if (await Permission.notification.isGranted) return true;

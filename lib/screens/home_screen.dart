@@ -105,6 +105,132 @@ class HomeScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _Label('Appearance'),
+        _Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.palette_outlined, color: Colors.white54),
+                title: const Text('Theme'),
+                subtitle: Text(
+                  settings.themeMode == 0 ? 'Dark' : settings.themeMode == 1 ? 'Light' : 'System default',
+                  style: const TextStyle(color: Colors.white38, fontSize: 13),
+                ),
+                trailing: SizedBox(
+                  width: 220,
+                  child: SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(value: 0, label: Text('Dark')),
+                      ButtonSegment(value: 1, label: Text('Light')),
+                      ButtonSegment(value: 2, label: Text('System')),
+                    ],
+                    selected: {settings.themeMode},
+                    onSelectionChanged: (s) => settings.setThemeMode(s.first),
+                    style: ButtonStyle(
+                      foregroundColor: MaterialStateProperty.resolveWith((states) =>
+                          states.contains(MaterialState.selected) ? Colors.white : Colors.white54),
+                      backgroundColor: MaterialStateProperty.resolveWith((states) =>
+                          states.contains(MaterialState.selected) ? const Color(0xFF6B9E78) : Colors.transparent),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _Label('Digest summaries'),
+        _Card(
+          child: Column(
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.alarm, color: Colors.white54),
+                title: const Text('Scheduled digest summaries'),
+                subtitle: const Text(
+                    'Flush notifications and generate summaries at set times, regardless of threshold',
+                    style: TextStyle(color: Colors.white38, fontSize: 13)),
+                value: settings.digestEnabled,
+                onChanged: settings.setDigestEnabled,
+              ),
+              if (settings.digestEnabled) ...[
+                const Divider(color: Colors.white10, height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.schedule, color: Colors.white54, size: 20),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Digest times', style: TextStyle(fontWeight: FontWeight.w500)),
+                                Text('Summaries will be generated at these times',
+                                    style: TextStyle(color: Colors.white38, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () async {
+                              final time = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay.now(),
+                                builder: (context, child) => Theme(
+                                  data: Theme.of(context).copyWith(
+                                    timePickerTheme: TimePickerThemeData(
+                                      backgroundColor: const Color(0xFF1E1E1E),
+                                      hourMinuteTextColor: Colors.white,
+                                      dayPeriodTextColor: Colors.white70,
+                                      dialHandColor: const Color(0xFF6B9E78),
+                                      dialBackgroundColor: const Color(0xFF2A2A2A),
+                                    ),
+                                  ),
+                                  child: child!,
+                                ),
+                              );
+                              if (time != null) {
+                                final formatted = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+                                await settings.addDigestTime(formatted);
+                              }
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF6B9E78),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: settings.digestTimes.map((time) =>
+                          Chip(
+                            backgroundColor: const Color(0xFF2A3A2E),
+                            deleteIconColor: const Color(0xFF6B9E78),
+                            label: Text(time, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                            onDeleted: () => settings.removeDigestTime(time),
+                          ),
+                        ).toList(),
+                      ),
+                      if (settings.digestTimes.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text('No times added — tap Add to schedule',
+                              style: TextStyle(color: Colors.white24, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
         _Label('Summarisation'),
         _Card(
           child: Column(

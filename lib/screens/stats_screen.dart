@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../providers/stats_provider.dart';
 import '../models/stat_entry.dart';
+import 'home_screen.dart';
 
 enum _Period { daily, weekly, monthly }
 
@@ -72,6 +73,15 @@ class _StatsScreenState extends State<StatsScreen> with WidgetsBindingObserver {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Statistics'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white54),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            ),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         color: const Color(0xFF6B9E78),

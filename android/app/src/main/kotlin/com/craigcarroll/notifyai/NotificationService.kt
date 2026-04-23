@@ -43,6 +43,9 @@ class NotificationService : NotificationListenerService() {
         private var instance: NotificationService? = null
 
         @JvmStatic
+        fun getInstance(): NotificationService? = instance
+
+        @JvmStatic
         fun injectTestNotification(pkg: String, title: String, text: String, conversationId: String?, originalNotificationIds: List<Int>? = null) {
             val service = instance
             if (service != null) {
@@ -69,6 +72,53 @@ class NotificationService : NotificationListenerService() {
             val content = "${title.lowercase().trim()}:${text.lowercase().trim()}"
             return MessageDigest.getInstance("MD5").digest(content.toByteArray())
                 .joinToString("") { "%02x".format(it) }
+        }
+
+        fun toJson(): JSONObject {
+            val actionsJson = JSONArray()
+            actions.forEach { action ->
+                actionsJson.put(JSONObject().apply {
+                    put("title", action.title?.toString() ?: "")
+                    put("actionIntent", action.actionIntent?.toString() ?: "")
+                })
+            }
+            return JSONObject().apply {
+                put("title", title)
+                put("text", text)
+                put("sbnKey", sbnKey)
+                put("imageBase64", imageBase64 ?: "")
+                put("timestamp", timestamp)
+                put("conversationId", conversationId ?: "")
+                put("contentHash", contentHash)
+                put("actions", actionsJson)
+            }
+        }
+
+        companion object {
+            fun fromJson(json: JSONObject): NotificationItem {
+                val actionsList = mutableListOf<Notification.Action>()
+                try {
+                    val arr = json.getJSONArray("actions")
+                    for (i in 0 until arr.length()) {
+                        val a = arr.getJSONObject(i)
+                        actionsList.add(Notification.Action.Builder(
+                            android.R.drawable.ic_menu_send,
+                            a.optString("title", "Action"),
+                            null
+                        ).build())
+                    }
+                } catch (_: Exception) {}
+                return NotificationItem(
+                    title = json.optString("title", ""),
+                    text = json.optString("text", ""),
+                    actions = actionsList,
+                    sbnKey = json.optString("sbnKey", ""),
+                    imageBase64 = json.optString("imageBase64", "").takeIf { it.isNotEmpty() },
+                    timestamp = json.optLong("timestamp", System.currentTimeMillis()),
+                    conversationId = json.optString("conversationId", "").takeIf { it.isNotEmpty() },
+                    contentHash = json.optString("contentHash", "")
+                )
+            }
         }
     }
 
@@ -113,6 +163,24 @@ class NotificationService : NotificationListenerService() {
                 return true
             }
             return false
+        }
+
+        fun removeNotificationByKey(sbnKey: String): Boolean {
+            var removed = false
+            val iter = conversationBuffers.iterator()
+            while (iter.hasNext()) {
+                val entry = iter.next()
+                if (entry.value.removeAll { it.sbnKey == sbnKey }) {
+                    removed = true
+                    if (entry.value.isEmpty()) {
+                        iter.remove()
+                    }
+                }
+            }
+            if (notifications.removeAll { it.sbnKey == sbnKey }) {
+                removed = true
+            }
+            return removed
         }
 
         fun getNotificationsForConversation(conversationId: String?): List<NotificationItem> {
@@ -219,6 +287,8 @@ class NotificationService : NotificationListenerService() {
             postStatusNotification("Notify AI running",
                 "Monitoring ${selected.size} app(s)")
         }
+        scheduleDigestAlarms()
+        processRetryQueue()
     }
 
     private fun startForegroundCompat() {
@@ -261,10 +331,24 @@ class NotificationService : NotificationListenerService() {
     // ── onNotificationPosted ───────────────────────────────────────────────────
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        processRetryQueue()
         try {
             handleNotification(sbn)
         } catch (e: Exception) {
             log("error", "onNotificationPosted crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        try {
+            val pkg = sbn.packageName
+            val group = buffer[pkg] ?: return
+            val removed = group.removeNotificationByKey(sbn.key)
+            if (removed) {
+                log("info", "Removed notification ${sbn.key} from buffer for $pkg (system/app cancelled)")
+            }
+        } catch (e: Exception) {
+            log("error", "onNotificationRemoved crash: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -350,7 +434,9 @@ class NotificationService : NotificationListenerService() {
                     try {
                         cancelNotification(item.sbnKey)
                         log("info", "[TEST] Dismissed notification: ${item.sbnKey}")
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        log("warn", "[TEST] Failed to dismiss ${item.sbnKey}: ${e.javaClass.simpleName}: ${e.message}")
+                    }
                 }
             }
 
@@ -546,14 +632,22 @@ class NotificationService : NotificationListenerService() {
             val allActions = allNotifications.flatMap { it.actions }.distinctBy { it.title?.toString() }
 
             // Dismiss processed notifications
-            if (spBool("dismiss_on_app_usage", true)) {
+            val activeKeys = if (spBool("dismiss_on_app_usage", true)) {
+                val active = mutableSetOf<String>()
                 allNotifications.forEach { item ->
                     try {
                         cancelNotification(item.sbnKey)
                         log("info", "Dismissed notification: ${item.sbnKey}")
-                    } catch (_: Exception) {}
+                    } catch (e: SecurityException) {
+                        log("warn", "Failed to dismiss ${item.sbnKey}: SecurityException — listener may lack cancel permission")
+                        active.add(item.sbnKey)
+                    } catch (e: Exception) {
+                        log("warn", "Failed to dismiss ${item.sbnKey}: ${e.javaClass.simpleName}: ${e.message}")
+                        active.add(item.sbnKey)
+                    }
                 }
-            }
+                active
+            } else emptySet()
 
             // Clear all processed notifications from buffers
             currentGroup.clearProcessedNotifications(processedKeys)
@@ -583,9 +677,17 @@ class NotificationService : NotificationListenerService() {
                         postSummary(pkg, summary, allActions, totalCount, appIcon, notificationColor, notifId)
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+
+                        // Verify originals were dismissed; retry any that remain
+                        if (activeKeys.isNotEmpty()) {
+                            handler.post {
+                                retryDismiss(pkg, activeKeys)
+                            }
+                        }
                     }
                 } else {
-                    log("error", "No AI summary for $name — check provider/key/model in Settings")
+                    log("error", "No AI summary for $name — enqueuing for retry. Check provider/key/model in Settings")
+                    enqueueRetry(pkg, allNotifications)
                 }
             }
         }
@@ -664,6 +766,29 @@ class NotificationService : NotificationListenerService() {
         // Strip "(N messages)" or "(N new messages)" patterns
         return id.replace(Regex("\\s*\\(\\d+\\s+(new\\s+)?messages?\\)$"), "").trim()
             .takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Retry dismissing notifications that failed the first cancelNotification attempt.
+     * Some OEM skins restrict cancelNotification; this gives it another shot after
+     * the summary has been posted, and logs exactly which keys are stuck.
+     */
+    private fun retryDismiss(pkg: String, keys: Set<String>) {
+        try {
+            val active = getActiveNotifications()?.filter { it.packageName == pkg && it.key in keys } ?: emptyList()
+            if (active.isEmpty()) return
+            log("warn", "Retrying dismiss for ${active.size} stuck notification(s) from $pkg")
+            active.forEach { sbn ->
+                try {
+                    cancelNotification(sbn.key)
+                    log("info", "Retry dismiss succeeded: ${sbn.key}")
+                } catch (e: Exception) {
+                    log("error", "Retry dismiss FAILED for ${sbn.key}: ${e.javaClass.simpleName}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            log("error", "retryDismiss crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     private fun getNotificationColor(pkg: String): Int? {
@@ -1011,8 +1136,22 @@ Provide a clear, concise summary."""
     // Falls back gracefully if not available
 
     private fun callGeminiNano(prompt: String): String? {
-        log("warn", "Gemini Nano on-device inference not yet available in this build — requires AICore SDK integration")
-        return null
+        return try {
+            val generativeModel = com.google.ai.edge.generativeai.GenerativeModel(
+                modelName = "gemini-nano"
+            )
+            val response = generativeModel.generateContent(prompt)
+            val result = response.text?.trim()
+            if (result != null) {
+                log("success", "Gemini Nano response OK — ${result.length} chars")
+            } else {
+                log("warn", "Gemini Nano returned empty response")
+            }
+            result
+        } catch (e: Exception) {
+            log("error", "Gemini Nano exception: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
     }
 
     // ── Claude (Anthropic) ─────────────────────────────────────────────────────
@@ -1354,6 +1493,192 @@ Provide a clear, concise summary."""
                 statsFile.writeText(stats.toString(2))
             } catch (_: Exception) {}
         } catch (_: Exception) {}
+    }
+
+    // ── Digest Alarms ──────────────────────────────────────────────────────────
+
+    fun scheduleDigestAlarms() {
+        try {
+            cancelDigestAlarms()
+            if (!spBool("digest_enabled", false)) return
+            val times = spList("digest_times")
+            if (times.isEmpty()) return
+            val alarmMgr = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val now = System.currentTimeMillis()
+            times.forEach { timeStr ->
+                val parts = timeStr.split(":")
+                if (parts.size != 2) return@forEach
+                val hour = parts[0].toIntOrNull() ?: return@forEach
+                val minute = parts[1].toIntOrNull() ?: return@forEach
+                val cal = java.util.Calendar.getInstance().apply {
+                    set(java.util.Calendar.HOUR_OF_DAY, hour)
+                    set(java.util.Calendar.MINUTE, minute)
+                    set(java.util.Calendar.SECOND, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                    if (timeInMillis <= now) add(java.util.Calendar.DAY_OF_YEAR, 1)
+                }
+                val intent = Intent(this, DigestReceiver::class.java).apply {
+                    action = DigestReceiver.ACTION_DIGEST
+                }
+                val pending = PendingIntent.getBroadcast(
+                    this, "digest_${hour}_${minute}".hashCode(), intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmMgr.canScheduleExactAlarms()) {
+                        alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+                    } else {
+                        alarmMgr.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+                    }
+                } else {
+                    alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+                }
+                log("info", "Scheduled digest alarm at ${timeStr} (${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(cal.time)})")
+            }
+        } catch (e: Exception) {
+            log("error", "scheduleDigestAlarms failed: ${e.message}")
+        }
+    }
+
+    fun cancelDigestAlarms() {
+        try {
+            val alarmMgr = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val times = spList("digest_times")
+            // Also cancel for any possible time we might have scheduled
+            val allTimes = times.toMutableSet()
+            for (h in 0..23) {
+                for (m in 0..59 step 15) {
+                    allTimes.add(String.format("%02d:%02d", h, m))
+                }
+            }
+            allTimes.forEach { timeStr ->
+                val parts = timeStr.split(":")
+                if (parts.size != 2) return@forEach
+                val hour = parts[0].toIntOrNull() ?: return@forEach
+                val minute = parts[1].toIntOrNull() ?: return@forEach
+                val intent = Intent(this, DigestReceiver::class.java).apply {
+                    action = DigestReceiver.ACTION_DIGEST
+                }
+                val pending = PendingIntent.getBroadcast(
+                    this, "digest_${hour}_${minute}".hashCode(), intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmMgr.cancel(pending)
+            }
+            log("info", "Cancelled digest alarms")
+        } catch (e: Exception) {
+            log("error", "cancelDigestAlarms failed: ${e.message}")
+        }
+    }
+
+    fun flushPackage(pkg: String) {
+        try {
+            val group = buffer[pkg] ?: return
+            val pending = group.getAllPendingNotifications()
+            if (pending.isEmpty()) return
+            log("info", "Flush digest for $pkg — ${pending.size} notification(s)")
+            val actions = pending.flatMap { it.actions }
+            val summary = callAI(pkg, pending)
+            if (summary != null && summary.isNotBlank() && !isNoChangeResponse(summary)) {
+                val appIcon = getAppIcon(pkg)
+                val color = getNotificationColor(pkg)
+                val notifId = group.getOrCreateNotificationId(null)
+                postSummary(pkg, summary, actions, pending.size, appIcon, color, notifId)
+                recordStat(pkg, intercepted = false, summarised = true)
+                val processedKeys = pending.map { it.sbnKey }.toSet()
+                group.clearProcessedNotifications(processedKeys)
+                buffer.entries.removeAll { it.value.getAllPendingNotifications().isEmpty() }
+            } else {
+                log("info", "Flush digest for $pkg produced no summary — retaining notifications")
+            }
+        } catch (e: Exception) {
+            log("error", "flushPackage crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    fun flushAllPackages() {
+        log("info", "Flush all packages triggered by digest alarm")
+        buffer.keys.toList().forEach { pkg ->
+            flushPackage(pkg)
+        }
+        // Reschedule for next occurrence
+        scheduleDigestAlarms()
+    }
+
+    // ── Retry Queue ──────────────────────────────────────────────────────────────
+
+    private fun enqueueRetry(pkg: String, items: List<NotificationItem>) {
+        try {
+            val sp = sp()
+            val key = "flutter.retry_queue"
+            val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
+            val itemJson = JSONArray()
+            items.forEach { itemJson.put(it.toJson()) }
+            arr.put(JSONObject().apply {
+                put("package", pkg)
+                put("items", itemJson)
+                put("attempts", 0)
+                put("timestamp", System.currentTimeMillis())
+            })
+            // Limit queue to 20 entries
+            while (arr.length() > 20) {
+                arr.remove(0)
+            }
+            sp.edit().putString(key, arr.toString()).apply()
+            log("warn", "Enqueued retry for $pkg — ${items.size} item(s). Queue size: ${arr.length()}")
+        } catch (e: Exception) {
+            log("error", "enqueueRetry failed: ${e.message}")
+        }
+    }
+
+    fun processRetryQueue() {
+        try {
+            if (!isNetworkAvailable()) {
+                log("info", "Retry queue: no network — skipping")
+                return
+            }
+            val sp = sp()
+            val key = "flutter.retry_queue"
+            val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
+            if (arr.length() == 0) return
+            log("info", "Processing retry queue — ${arr.length()} item(s)")
+            val remaining = JSONArray()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val pkg = obj.getString("package")
+                val itemsJson = obj.getJSONArray("items")
+                val attempts = obj.getInt("attempts") + 1
+                val items = (0 until itemsJson.length()).map { idx ->
+                    NotificationItem.fromJson(itemsJson.getJSONObject(idx))
+                }
+                val summary = callAI(pkg, items)
+                if (summary != null && summary.isNotBlank() && !isNoChangeResponse(summary)) {
+                    val actions = items.flatMap { it.actions }
+                    val appIcon = getAppIcon(pkg)
+                    val color = getNotificationColor(pkg)
+                    postSummary(pkg, summary, actions, items.size, appIcon, color)
+                    recordStat(pkg, intercepted = false, summarised = true)
+                    log("success", "Retry succeeded for $pkg (attempt $attempts)")
+                } else if (attempts < 3) {
+                    obj.put("attempts", attempts)
+                    remaining.put(obj)
+                    log("warn", "Retry failed for $pkg — attempt $attempts/3, requeued")
+                } else {
+                    log("warn", "Retry dropped for $pkg after $attempts attempts")
+                }
+            }
+            sp.edit().putString(key, remaining.toString()).apply()
+        } catch (e: Exception) {
+            log("error", "processRetryQueue crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val activeNetwork = cm.activeNetworkInfo
+            activeNetwork?.isConnected == true
+        } catch (_: Exception) { false }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

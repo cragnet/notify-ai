@@ -2,12 +2,16 @@
 
 ## Active Development
 
-### In Progress
-- [ ] GitHub Actions CI/CD build setup
-  - Memory optimization for free tier
-  - Awaiting 16GB RAM access via public repo
+### Recently Completed (v2.0.0)
+- [x] Scheduled digest summaries (AlarmManager-based)
+- [x] Light / system theme toggle
+- [x] Auto-retry & offline queueing for failed AI calls
+- [x] Gemini Nano on-device via Google AI Edge / Play Services
+- [x] Navigation restructure — History as primary tab, cog icon for Settings
+- [x] CHANGELOG.md created
+- [x] Documentation updated (README, BUGS, TODO)
 
-### Recently Completed
+### Previously Completed (v1.1.0)
 - [x] ClassCastException fix for notification processing
 - [x] Custom AI prompt feature with import/export
 - [x] Stats file persistence to local storage
@@ -22,7 +26,9 @@
 - [ ] Notification filtering by keyword
 - [ ] Custom notification sounds per app
 - [ ] Export/import full app settings
-- [ ] Dark/light theme toggle
+- [ ] Widget showing recent summary counts
+- [ ] Per-app custom prompt templates
+- [ ] Per-app threshold overrides
 
 ### Performance
 - [ ] Reduce APK size further

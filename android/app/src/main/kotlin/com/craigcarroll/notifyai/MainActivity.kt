@@ -62,6 +62,16 @@ class MainActivity : FlutterActivity() {
                 "isGeminiNanoAvailable" ->
                     result.success(isGeminiNanoAvailable())
 
+                "rescheduleDigestAlarms" -> {
+                    val service = NotificationService.getInstance()
+                    if (service != null) {
+                        service.scheduleDigestAlarms()
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+
                 "sendTestNotification" -> {
                     val count = call.argument<Int>("count") ?: 1
                     val appPackage = call.argument<String>("packageName") ?: "com.test.app"

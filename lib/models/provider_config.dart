@@ -69,6 +69,7 @@ const kProviders = [
     modelHint: 'gemini-nano',
     urlHint: '',
     keyHint: '',
+    // Note: requires AICore delivered via Google Play Services on Pixel 8+ or supported devices
   ),
 ];
 

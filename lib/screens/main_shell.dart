@@ -18,10 +18,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _listenerMissing = false;
 
   static const _screens = [
-    HomeScreen(),
     HistoryScreen(),
     StatsScreen(),
     LogScreen(),
+    HomeScreen(),
   ];
 
   @override
@@ -105,11 +105,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         onDestinationSelected: (i) { setState(() => _index = i); _saveIndex(i); },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings, color: Color(0xFF6B9E78)),
-            label: 'Settings',
-          ),
-          NavigationDestination(
             icon: Icon(Icons.notifications_outlined),
             selectedIcon: Icon(Icons.notifications, color: Color(0xFF6B9E78)),
             label: 'History',
@@ -123,6 +118,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             icon: Icon(Icons.terminal_outlined),
             selectedIcon: Icon(Icons.terminal, color: Color(0xFF6B9E78)),
             label: 'Log',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings, color: Color(0xFF6B9E78)),
+            label: 'Settings',
           ),
         ],
       ),

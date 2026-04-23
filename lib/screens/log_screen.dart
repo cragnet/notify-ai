@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'home_screen.dart';
 
 class LogEntry {
   final String timestamp;
@@ -98,6 +99,13 @@ class _LogScreenState extends State<LogScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Service Log'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white54),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            ),
+          ),
           IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white54),
               onPressed: _clear),

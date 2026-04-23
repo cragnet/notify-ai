@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'home_screen.dart';
 
 class HistoryEntry {
   final String packageName;
@@ -137,6 +138,13 @@ class _HistoryScreenState extends State<HistoryScreen> with WidgetsBindingObserv
       appBar: AppBar(
         title: const Text('History'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white54),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            ),
+          ),
           if (_entries.isNotEmpty)
             IconButton(icon: const Icon(Icons.delete_outline, color: Colors.white54),
                 onPressed: _clear),

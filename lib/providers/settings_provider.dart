@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
+import '../services/permissions_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
   late SharedPreferences _prefs;
@@ -23,6 +24,13 @@ class SettingsProvider extends ChangeNotifier {
   bool retainOriginalActions = true;
   String customPrompt = '';
 
+  // Theme: 0 = dark, 1 = light, 2 = system
+  int themeMode = 0;
+
+  // Digest settings
+  bool digestEnabled = false;
+  List<String> digestTimes = [];
+
   Set<String> enabledApps = {};
   Map<String, int?> notificationColors = {}; // packageName -> color value
 
@@ -42,6 +50,9 @@ Be brief but informative.''';
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
     retainOriginalActions = _prefs.getBool('retain_original_actions') ?? true;
     customPrompt = _prefs.getString('custom_prompt') ?? defaultPrompt;
+    themeMode = _prefs.getInt('theme_mode') ?? 0;
+    digestEnabled = _prefs.getBool('digest_enabled') ?? false;
+    digestTimes = _prefs.getStringList('digest_times') ?? [];
     enabledApps = (_prefs.getStringList('enabled_apps') ?? []).toSet();
 
     // Load notification colors
@@ -162,6 +173,43 @@ Be brief but informative.''';
   }
 
   String getCustomPrompt() => customPrompt.isNotEmpty ? customPrompt : defaultPrompt;
+
+  Future<void> setThemeMode(int v) async {
+    themeMode = v;
+    await _prefs.setInt('theme_mode', v);
+    notifyListeners();
+  }
+
+  Future<void> setDigestEnabled(bool v) async {
+    digestEnabled = v;
+    await _prefs.setBool('digest_enabled', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestTimes(List<String> times) async {
+    digestTimes = List.from(times);
+    await _prefs.setStringList('digest_times', digestTimes);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> addDigestTime(String time) async {
+    if (!digestTimes.contains(time)) {
+      digestTimes.add(time);
+      digestTimes.sort();
+      await _prefs.setStringList('digest_times', digestTimes);
+      notifyListeners();
+      PermissionsService.rescheduleDigestAlarms();
+    }
+  }
+
+  Future<void> removeDigestTime(String time) async {
+    digestTimes.remove(time);
+    await _prefs.setStringList('digest_times', digestTimes);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
 
   Future<void> setServiceEnabled(bool v) async {
     serviceEnabled = v;

@@ -1,5 +1,16 @@
 # Known Issues & Bug Tracker
 
+## Version 2.0.0
+
+### New Known Issues
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Digest alarm permission (Android 12+) | ⚠️ Manual step | `SCHEDULE_EXACT_ALARM` requires user to grant permission in system settings if denied. App redirects automatically. |
+| Gemini Nano device support | ⚠️ Limited | Requires AICore delivered via Google Play Services. Only Pixel 8+ and select devices. Falls back gracefully with log warning. |
+| Light theme card colours | ⚠️ Minor | Some hard-coded dark-theme colours in `history_screen.dart` and `stats_screen.dart` may appear slightly off in light mode. |
+| Retry queue actions | ⚠️ Expected | Original notification action intents (e.g. Reply) are lost on retry after process restart. Action buttons are recreated as placeholders. |
+
 ## Fixed Issues
 
 ### ClassCastException Crash (RESOLVED)
@@ -20,6 +31,10 @@
 | OpenAI provider | ✅ Working | Restored to provider list |
 | GitHub Actions build | ✅ Working | Cloud builds functional |
 | History tab | ✅ Working | Fixed flutter. prefix issue |
+| Digest summaries | ✅ Working | AlarmManager-based scheduled flushes |
+| Light theme | ✅ Working | ThemeMode toggle with Material 3 |
+| Retry queue | ✅ Working | Offline enqueue + network-aware drain |
+| Gemini Nano | ✅ Working | Integrated via AI Edge SDK |
 
 ## Open Issues
 

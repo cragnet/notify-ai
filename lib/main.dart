@@ -25,15 +25,22 @@ class NotifyAIApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
     return MaterialApp(
       title: 'Notify AI',
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(),
+      themeMode: settings.themeMode == 1
+          ? ThemeMode.light
+          : settings.themeMode == 2
+              ? ThemeMode.system
+              : ThemeMode.dark,
+      theme: _buildLightTheme(),
+      darkTheme: _buildDarkTheme(),
       home: const _AppEntry(),
     );
   }
 
-  ThemeData _buildTheme() {
+  ThemeData _buildDarkTheme() {
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF121212),
@@ -90,6 +97,77 @@ class NotifyAIApp extends StatelessWidget {
         ),
         labelStyle: const TextStyle(color: Colors.white54),
         hintStyle: const TextStyle(color: Colors.white24),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6B9E78),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+      useMaterial3: true,
+    );
+  }
+
+  ThemeData _buildLightTheme() {
+    return ThemeData(
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+      colorScheme: const ColorScheme.light(
+        primary: Color(0xFF6B9E78),
+        secondary: Color(0xFF6B9E78),
+        surface: Color(0xFFFFFFFF),
+        background: Color(0xFFF5F5F5),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFFFFFFFF),
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w500, color: Colors.black87),
+        iconTheme: IconThemeData(color: Colors.black87),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: const Color(0xFFFFFFFF),
+        indicatorColor: const Color(0xFFE8F5E9),
+        labelTextStyle: MaterialStateProperty.all(
+          const TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: MaterialStateProperty.resolveWith((s) =>
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF6B9E78)
+                : Colors.grey),
+        trackColor: MaterialStateProperty.resolveWith((s) =>
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF4A7A56)
+                : Colors.black12),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: MaterialStateProperty.resolveWith((s) =>
+            s.contains(MaterialState.selected)
+                ? const Color(0xFF6B9E78)
+                : Colors.transparent),
+        checkColor: MaterialStateProperty.all(Colors.white),
+        side: const BorderSide(color: Colors.black38),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFEEEEEE),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF6B9E78)),
+        ),
+        labelStyle: const TextStyle(color: Colors.black54),
+        hintStyle: const TextStyle(color: Colors.black26),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
