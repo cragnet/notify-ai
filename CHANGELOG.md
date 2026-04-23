@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.6] - 2026-04-23
+
+### Fixed
+
+- **WhatsApp placeholder text in summaries** — notifications with text like "2 new messages" were being sent to the AI as actual content. These are now filtered out before buffering.
+- **Notification buffer losing content during WhatsApp stacking** — `onNotificationRemoved` was removing old notifications before the runnable could summarize them. Now removals are skipped while a summary runnable is pending, letting the runnable capture all content before clearing.
+- **Stale summary notifications not dismissed** — when the user taps "Mark as read" on an original notification and the app/system dismisses it, the summary notification is now automatically cancelled if no buffered notifications remain.
+- **Debounce leak on threshold deferral** — the runnable wasn't removing itself from the debounce map when deferring due to insufficient notifications, causing `onNotificationRemoved` to skip cleanups indefinitely.
+
 ## [2.0.5] - 2026-04-23
 
 ### Fixed

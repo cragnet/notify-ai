@@ -343,12 +343,39 @@ class NotificationService : NotificationListenerService() {
         try {
             val pkg = sbn.packageName
             val group = buffer[pkg] ?: return
+
+            // If a runnable is pending for this package, the buffer will be cleared
+            // when the runnable fires. Removing now would lose message content
+            // before the summary can be generated (e.g. WhatsApp stacking).
+            if (debounce.containsKey(pkg)) {
+                log("info", "Skipped removing ${sbn.key} — runnable pending for $pkg")
+                return
+            }
+
             val removed = group.removeNotificationByKey(sbn.key)
             if (removed) {
                 log("info", "Removed notification ${sbn.key} from buffer for $pkg (system/app cancelled)")
+                // If no notifications remain, also cancel our summary so the user
+                // isn't left with a stale summary after dismissing originals
+                if (group.getAllPendingNotifications().isEmpty()) {
+                    cancelSummaryNotification(pkg)
+                }
             }
         } catch (e: Exception) {
             log("error", "onNotificationRemoved crash: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /** Cancel the summary notification for a package (e.g. when originals are dismissed). */
+    private fun cancelSummaryNotification(pkg: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val group = buffer[pkg] ?: return
+            val notifId = group.getOrCreateNotificationId("summary")
+            nm.cancel(notifId)
+            log("info", "Cancelled summary notification for $pkg (id=$notifId)")
+        } catch (e: Exception) {
+            log("warn", "Failed to cancel summary for $pkg: ${e.javaClass.simpleName}")
         }
     }
 
@@ -430,6 +457,7 @@ class NotificationService : NotificationListenerService() {
             log("info", "[TEST] RUNNABLE CHECK for $name: total=$currentTotal, threshold=$currentThreshold")
 
             if (currentTotal < currentThreshold) {
+                debounce.remove(pkg)
                 log("info", "[TEST] DEFERRING $name - only $currentTotal total notifications, need $currentThreshold")
                 return@Runnable
             }
@@ -520,6 +548,13 @@ class NotificationService : NotificationListenerService() {
             } catch (_: Exception) { null }
                 ?: extractMessagingText(extras)
                 ?: run { log("warn", "No usable text"); return }
+        }
+
+        // Skip WhatsApp placeholder notifications that contain no real message text
+        // (e.g. "2 new messages", "3 new messages" stacking updates)
+        if (isWhatsAppPlaceholder(text)) {
+            log("info", "Skipping WhatsApp placeholder notification: '$text'")
+            return
         }
 
         // Extract conversation info for grouping
@@ -618,6 +653,7 @@ class NotificationService : NotificationListenerService() {
 
             // Simple threshold check - just need enough notifications total
             if (totalCount < threshold) {
+                debounce.remove(pkg)
                 log("info", "DEFERRING $name - only $totalCount total notifications, need $threshold")
                 return@Runnable
             }
@@ -719,6 +755,17 @@ class NotificationService : NotificationListenerService() {
      * Detects AI responses that indicate no new content vs actual summaries.
      * Returns true if the response should be skipped (no meaningful update).
      */
+    /**
+     * Detects WhatsApp (and similar) placeholder text that appears when
+     * notifications are stacked, e.g. "2 new messages", "3 new messages".
+     * These contain no actual message content and should not be summarized.
+     */
+    private fun isWhatsAppPlaceholder(text: String): Boolean {
+        val trimmed = text.trim()
+        // Match patterns like: "2 new messages", "3 new messages", "1 new message"
+        return Regex("^\\d+\\s+new\\s+messages?$", RegexOption.IGNORE_CASE).matches(trimmed)
+    }
+
     private fun isNoChangeResponse(text: String): Boolean {
         val lower = text.lowercase()
         // Common patterns AI uses to say "nothing changed" or "no content"
