@@ -388,6 +388,8 @@ class NotificationService : NotificationListenerService() {
         val contentHash = newItem.computeHash()
         val itemWithHash = newItem.copy(contentHash = contentHash)
 
+        val group = buffer.getOrPut(pkg) { NotificationGroup(packageName = pkg) }
+
         // Remove any stale test notifications from previous runs so they don't
         // combine with real notifications and produce garbage summaries
         group.getAllPendingNotifications()
