@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.2] - 2026-04-23
+
+### Fixed
+
+- **Gemini Nano build failure** — replaced the non-existent `com.google.ai.edge.generativeai` artifact with the official `com.google.mlkit:genai-prompt:1.0.0-beta2` SDK. Gemini Nano now works via ML Kit GenAI Prompt API with on-device inference, automatic model download, and no API key required.
+- Updated `isGeminiNanoAvailable()` to use ML Kit `checkStatus()` instead of checking for the AICore package.
+
 ## [2.0.1] - 2026-04-23
 
 ### Added
@@ -16,7 +23,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Build failure** — removed non-existent `com.google.ai.edge.generativeai:generativeai:0.1.0` dependency. Gemini Nano reverted to placeholder stub until correct AICore artifact is confirmed.
+- **Build failure** — removed non-existent `com.google.ai.edge.generativeai:generativeai:0.1.0` dependency. Gemini Nano temporarily reverted to placeholder stub.
 
 ## [2.0.0] - 2026-04-23
 

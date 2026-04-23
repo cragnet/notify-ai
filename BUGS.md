@@ -1,5 +1,9 @@
 # Known Issues & Bug Tracker
 
+## Version 2.0.2
+
+No new known issues.
+
 ## Version 2.0.1
 
 ### New Known Issues

@@ -10,7 +10,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Separate Digest Prompt:** Custom AI prompt specifically optimised for periodic, multi-app rollups
 - **Auto-Retry & Offline Queue:** Failed AI calls are automatically retried with exponential backoff when connectivity returns
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
-- **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via Play Services), Ollama (self-hosted)
+- **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via ML Kit), Ollama (self-hosted)
 - **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
 - **Click to Open:** Tap any summary notification to jump directly to the originating app
 - **App Icons & Colors:** Summary notifications show the app's icon and original notification color

@@ -1,7 +1,7 @@
 name: notify_ai
 description: AI-powered notification summariser supporting multiple AI providers
 publish_to: 'none'
-version: 2.0.1+4
+version: 2.0.2+5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -209,12 +209,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun isGeminiNanoAvailable(): Boolean {
-        // Check for Google AI Edge / Gemini Nano on-device
         return try {
-            val pm = packageManager
-            // Gemini Nano is available via Google Play Services AI Core
-            pm.getPackageInfo("com.google.android.aicore", 0)
-            true
+            val generativeModel = com.google.mlkit.genai.prompt.Generation.getClient()
+            val status = com.google.android.gms.tasks.Tasks.await(generativeModel.checkStatus())
+            status == com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE ||
+                status == com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE
         } catch (e: Exception) {
             false
         }

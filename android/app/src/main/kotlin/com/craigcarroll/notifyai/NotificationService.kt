@@ -1147,8 +1147,46 @@ Provide a clear, concise summary."""
     // Falls back gracefully if not available
 
     private fun callGeminiNano(prompt: String): String? {
-        log("warn", "Gemini Nano on-device inference requires AICore (Pixel 8+). Not available in this build.")
-        return null
+        return try {
+            val generativeModel = com.google.mlkit.genai.prompt.Generation.getClient()
+            val status = com.google.android.gms.tasks.Tasks.await(generativeModel.checkStatus())
+            when (status) {
+                com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE -> {
+                    val request = com.google.mlkit.genai.prompt.generateContentRequest(prompt) {
+                        maxOutputTokens = 150
+                    }
+                    val result = com.google.android.gms.tasks.Tasks.await(generativeModel.generateContent(request))
+                    val text = result.text?.trim()
+                    if (text != null) {
+                        log("success", "Gemini Nano response OK — ${text.length} chars")
+                    } else {
+                        log("warn", "Gemini Nano returned empty response")
+                    }
+                    text
+                }
+                com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE -> {
+                    log("info", "Gemini Nano model downloadable — starting download")
+                    com.google.android.gms.tasks.Tasks.await(generativeModel.download())
+                    log("info", "Gemini Nano download complete — retrying inference")
+                    val request = com.google.mlkit.genai.prompt.generateContentRequest(prompt) {
+                        maxOutputTokens = 150
+                    }
+                    val result = com.google.android.gms.tasks.Tasks.await(generativeModel.generateContent(request))
+                    result.text?.trim()
+                }
+                com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADING -> {
+                    log("warn", "Gemini Nano model is downloading — skipping")
+                    null
+                }
+                else -> {
+                    log("warn", "Gemini Nano unavailable on this device: $status")
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            log("error", "Gemini Nano exception: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
     }
 
     // ── Claude (Anthropic) ─────────────────────────────────────────────────────

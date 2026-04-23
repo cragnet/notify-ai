@@ -61,7 +61,7 @@ const kProviders = [
   ),
   ProviderConfig(
     id: 'gemini_nano',
-    displayName: 'Gemini Nano (on-device)',
+    displayName: 'Gemini Nano (on-device via ML Kit)',
     defaultModel: 'gemini-nano',
     defaultBaseUrl: '',
     needsApiKey: false,
@@ -69,7 +69,8 @@ const kProviders = [
     modelHint: 'gemini-nano',
     urlHint: '',
     keyHint: '',
-    // Note: requires AICore delivered via Google Play Services on Pixel 8+ or supported devices
+    // Note: uses ML Kit GenAI Prompt API. Requires Google Play Services and a supported device.
+    // First use may trigger an on-device model download (~1-2 GB).
   ),
 ];
 
