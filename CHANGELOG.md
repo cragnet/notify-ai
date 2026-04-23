@@ -2,25 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2026-04-23
+
+### Added
+
+- **Enhanced digest scheduling** — four schedule modes:
+  - **Fixed times** — specific clock times (e.g. 09:00, 13:00, 18:00)
+  - **Interval** — recurring every N minutes (15 min to 12 hr)
+  - **Daily** — once per day at a chosen time
+  - **Weekly** — once per week on a chosen day and time
+- **Per-app digest filtering** — include all monitored apps, include only selected apps, or exclude specific apps from digests.
+- **Separate digest AI prompt** — custom prompt template specifically for periodic digest summaries, with its own default optimised for multi-app, time-accumulated rollups.
+
+### Fixed
+
+- **Build failure** — removed non-existent `com.google.ai.edge.generativeai:generativeai:0.1.0` dependency. Gemini Nano reverted to placeholder stub until correct AICore artifact is confirmed.
+
 ## [2.0.0] - 2026-04-23
 
 ### Added
 
-- **Scheduled digest summaries** — configure specific times (e.g. 09:00, 13:00, 18:00) when all buffered notifications are flushed and summarized regardless of threshold count. Uses `AlarmManager` with exact alarms.
+- **Scheduled digest summaries** — configure specific times when all buffered notifications are flushed and summarized regardless of threshold count. Uses `AlarmManager` with exact alarms.
 - **Light / system theme support** — toggle between Dark, Light, and System-default themes from Settings.
 - **Auto-retry & offline queue** — when an AI call fails (network error, timeout, HTTP error), the notification batch is queued and retried automatically with exponential backoff (max 3 attempts).
-- **Gemini Nano on-device inference** — integrates `com.google.ai.edge.generativeai` SDK for true on-device summarization via Google Play Services / AICore (Pixel 8+ and supported devices).
 - **Navigation restructure** — History is now the primary/default tab. Settings is accessible via the bottom nav or via a cog icon in the AppBar of every other tab.
 
 ### Changed
 
 - Bumped version to 2.0.0 (major release).
-- Updated `provider_config.dart` to note Gemini Nano requires AICore / Play Services.
 - Added Android permissions: `SCHEDULE_EXACT_ALARM`, `WAKE_LOCK`, `ACCESS_NETWORK_STATE`.
 
 ### Fixed
 
-- Gemini Nano provider no longer returns a stub; it now calls the real on-device model.
+- Gemini Nano provider stub improved with better error messaging.
 
 ## [1.1.0] - Previous release
 

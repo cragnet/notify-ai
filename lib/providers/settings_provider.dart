@@ -29,7 +29,27 @@ class SettingsProvider extends ChangeNotifier {
 
   // Digest settings
   bool digestEnabled = false;
+  String digestScheduleType = 'fixed_times'; // fixed_times, interval, daily, weekly
+  int digestIntervalMinutes = 120; // for interval type
+  String digestDailyTime = '09:00'; // for daily type
+  int digestWeeklyDay = 1; // 0=Sun..6=Sat, default Mon
+  String digestWeeklyTime = '09:00'; // for weekly type
+  String digestAppFilter = 'all'; // all, include_only, exclude
+  List<String> digestAppList = []; // packages to include/exclude
+  String digestPrompt = ''; // custom prompt for digest summaries
   List<String> digestTimes = [];
+
+  // Default digest prompt template
+  static const String defaultDigestPrompt = '''You are generating a periodic digest summary of notifications accumulated over time.
+
+Context: These notifications may span multiple apps and conversations. Group related items, prioritise urgent or actionable messages, and provide a coherent overview.
+
+App: {app_name}
+Notifications:
+{notifications}
+Total count: {count}
+
+Provide a well-structured digest. Highlight time-sensitive items and anything requiring action. Use clear sections if multiple topics are involved.''';
 
   Set<String> enabledApps = {};
   Map<String, int?> notificationColors = {}; // packageName -> color value
@@ -52,6 +72,14 @@ Be brief but informative.''';
     customPrompt = _prefs.getString('custom_prompt') ?? defaultPrompt;
     themeMode = _prefs.getInt('theme_mode') ?? 0;
     digestEnabled = _prefs.getBool('digest_enabled') ?? false;
+    digestScheduleType = _prefs.getString('digest_schedule_type') ?? 'fixed_times';
+    digestIntervalMinutes = _prefs.getInt('digest_interval_minutes') ?? 120;
+    digestDailyTime = _prefs.getString('digest_daily_time') ?? '09:00';
+    digestWeeklyDay = _prefs.getInt('digest_weekly_day') ?? 1;
+    digestWeeklyTime = _prefs.getString('digest_weekly_time') ?? '09:00';
+    digestAppFilter = _prefs.getString('digest_app_filter') ?? 'all';
+    digestAppList = _prefs.getStringList('digest_app_list') ?? [];
+    digestPrompt = _prefs.getString('digest_prompt') ?? '';
     digestTimes = _prefs.getStringList('digest_times') ?? [];
     enabledApps = (_prefs.getStringList('enabled_apps') ?? []).toSet();
 
@@ -186,6 +214,71 @@ Be brief but informative.''';
     notifyListeners();
     PermissionsService.rescheduleDigestAlarms();
   }
+
+  Future<void> setDigestScheduleType(String v) async {
+    digestScheduleType = v;
+    await _prefs.setString('digest_schedule_type', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestIntervalMinutes(int v) async {
+    digestIntervalMinutes = v;
+    await _prefs.setInt('digest_interval_minutes', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestDailyTime(String v) async {
+    digestDailyTime = v;
+    await _prefs.setString('digest_daily_time', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestWeeklyDay(int v) async {
+    digestWeeklyDay = v;
+    await _prefs.setInt('digest_weekly_day', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestWeeklyTime(String v) async {
+    digestWeeklyTime = v;
+    await _prefs.setString('digest_weekly_time', v);
+    notifyListeners();
+    PermissionsService.rescheduleDigestAlarms();
+  }
+
+  Future<void> setDigestAppFilter(String v) async {
+    digestAppFilter = v;
+    await _prefs.setString('digest_app_filter', v);
+    notifyListeners();
+  }
+
+  Future<void> setDigestAppList(List<String> v) async {
+    digestAppList = List.from(v);
+    await _prefs.setStringList('digest_app_list', digestAppList);
+    notifyListeners();
+  }
+
+  Future<void> toggleDigestApp(String packageName) async {
+    if (digestAppList.contains(packageName)) {
+      digestAppList.remove(packageName);
+    } else {
+      digestAppList.add(packageName);
+    }
+    await _prefs.setStringList('digest_app_list', digestAppList);
+    notifyListeners();
+  }
+
+  Future<void> setDigestPrompt(String v) async {
+    digestPrompt = v;
+    await _prefs.setString('digest_prompt', v);
+    notifyListeners();
+  }
+
+  String getDigestPrompt() => digestPrompt.isNotEmpty ? digestPrompt : defaultDigestPrompt;
 
   Future<void> setDigestTimes(List<String> times) async {
     digestTimes = List.from(times);

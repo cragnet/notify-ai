@@ -825,7 +825,7 @@ class NotificationService : NotificationListenerService() {
 
     // ── AI dispatch ────────────────────────────────────────────────────────────
 
-    private fun callAI(pkg: String, buf: List<NotificationItem>, previousSummary: String? = null): String? {
+    private fun callAI(pkg: String, buf: List<NotificationItem>, previousSummary: String? = null, isDigest: Boolean = false): String? {
         // Defensive copy and validate
         val notifications = buf.toList()
         if (notifications.isEmpty()) {
@@ -839,7 +839,7 @@ class NotificationService : NotificationListenerService() {
         val baseUrl = spStr("base_url_$provider", "")
         val length  = spInt("summary_length", 2)
 
-        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${notifications.size} hasPrevious=${previousSummary != null}")
+        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${notifications.size} hasPrevious=${previousSummary != null} isDigest=$isDigest")
 
         if (model.isEmpty() && provider != "gemini_nano") {
             log("error", "AI SKIP: no model set for $provider — configure in AI Provider settings"); return null
@@ -890,7 +890,7 @@ class NotificationService : NotificationListenerService() {
             uniqueTexts.joinToString("\n") { "• ${it.title}: ${it.text}" }
         }
 
-        val customPrompt = spStr("custom_prompt", "")
+        val customPrompt = if (isDigest) spStr("digest_prompt", "") else spStr("custom_prompt", "")
 
         // Debug: log what we're sending
         log("info", "Building prompt for $name with ${uniqueNotifications.size} unique notifications (was ${notifications.size}) from ${groupedBySender.size} sender(s)")
@@ -929,7 +929,18 @@ class NotificationService : NotificationListenerService() {
                 .replace("{instructions}", instructions)
         } else {
             // Default prompt with clear grouping/deduplication instructions
-            if (previousSummary != null) {
+            if (isDigest) {
+                """You are generating a periodic digest summary of notifications accumulated over time.
+
+Context: These notifications may span multiple apps and conversations. Group related items, prioritise urgent or actionable messages, and provide a coherent overview.
+
+App: $name
+Notifications:
+$msgs
+Total count: ${notifications.size}
+
+Provide a well-structured digest. Highlight time-sensitive items and anything requiring action. Use clear sections if multiple topics are involved. $hint."""
+            } else if (previousSummary != null) {
                 """You are summarizing notifications from $name.
 
 Instructions:
@@ -1136,22 +1147,8 @@ Provide a clear, concise summary."""
     // Falls back gracefully if not available
 
     private fun callGeminiNano(prompt: String): String? {
-        return try {
-            val generativeModel = com.google.ai.edge.generativeai.GenerativeModel(
-                modelName = "gemini-nano"
-            )
-            val response = generativeModel.generateContent(prompt)
-            val result = response.text?.trim()
-            if (result != null) {
-                log("success", "Gemini Nano response OK — ${result.length} chars")
-            } else {
-                log("warn", "Gemini Nano returned empty response")
-            }
-            result
-        } catch (e: Exception) {
-            log("error", "Gemini Nano exception: ${e.javaClass.simpleName}: ${e.message}")
-            null
-        }
+        log("warn", "Gemini Nano on-device inference requires AICore (Pixel 8+). Not available in this build.")
+        return null
     }
 
     // ── Claude (Anthropic) ─────────────────────────────────────────────────────
@@ -1501,66 +1498,137 @@ Provide a clear, concise summary."""
         try {
             cancelDigestAlarms()
             if (!spBool("digest_enabled", false)) return
-            val times = spList("digest_times")
-            if (times.isEmpty()) return
             val alarmMgr = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val scheduleType = spStr("digest_schedule_type", "fixed_times")
             val now = System.currentTimeMillis()
-            times.forEach { timeStr ->
-                val parts = timeStr.split(":")
-                if (parts.size != 2) return@forEach
-                val hour = parts[0].toIntOrNull() ?: return@forEach
-                val minute = parts[1].toIntOrNull() ?: return@forEach
-                val cal = java.util.Calendar.getInstance().apply {
-                    set(java.util.Calendar.HOUR_OF_DAY, hour)
-                    set(java.util.Calendar.MINUTE, minute)
-                    set(java.util.Calendar.SECOND, 0)
-                    set(java.util.Calendar.MILLISECOND, 0)
-                    if (timeInMillis <= now) add(java.util.Calendar.DAY_OF_YEAR, 1)
-                }
-                val intent = Intent(this, DigestReceiver::class.java).apply {
-                    action = DigestReceiver.ACTION_DIGEST
-                }
-                val pending = PendingIntent.getBroadcast(
-                    this, "digest_${hour}_${minute}".hashCode(), intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (alarmMgr.canScheduleExactAlarms()) {
-                        alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
-                    } else {
-                        alarmMgr.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+            when (scheduleType) {
+                "fixed_times" -> {
+                    val times = spList("digest_times")
+                    if (times.isEmpty()) return
+                    times.forEach { timeStr ->
+                        scheduleExactAlarm(alarmMgr, timeStr, "digest_fixed_${timeStr.hashCode()}")
                     }
-                } else {
-                    alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+                    log("info", "Scheduled ${times.size} fixed-time digest alarm(s)")
                 }
-                log("info", "Scheduled digest alarm at ${timeStr} (${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(cal.time)})")
+                "interval" -> {
+                    val intervalMin = spInt("digest_interval_minutes", 120)
+                    val intervalMs = intervalMin * 60_000L
+                    val intent = Intent(this, DigestReceiver::class.java).apply {
+                        action = DigestReceiver.ACTION_DIGEST
+                    }
+                    val pending = PendingIntent.getBroadcast(
+                        this, "digest_interval".hashCode(), intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, now + intervalMs, pending)
+                    } else {
+                        alarmMgr.setExact(android.app.AlarmManager.RTC_WAKEUP, now + intervalMs, pending)
+                    }
+                    log("info", "Scheduled interval digest alarm in ${intervalMin} min")
+                }
+                "daily" -> {
+                    val timeStr = spStr("digest_daily_time", "09:00")
+                    scheduleExactAlarm(alarmMgr, timeStr, "digest_daily", repeatDaily = true)
+                    log("info", "Scheduled daily digest alarm at $timeStr")
+                }
+                "weekly" -> {
+                    val day = spInt("digest_weekly_day", 1)
+                    val timeStr = spStr("digest_weekly_time", "09:00")
+                    scheduleWeeklyAlarm(alarmMgr, day, timeStr)
+                    log("info", "Scheduled weekly digest alarm on day $day at $timeStr")
+                }
             }
         } catch (e: Exception) {
             log("error", "scheduleDigestAlarms failed: ${e.message}")
         }
     }
 
+    private fun scheduleExactAlarm(alarmMgr: android.app.AlarmManager, timeStr: String, requestCode: String, repeatDaily: Boolean = false) {
+        val parts = timeStr.split(":")
+        if (parts.size != 2) return
+        val hour = parts[0].toIntOrNull() ?: return
+        val minute = parts[1].toIntOrNull() ?: return
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, if (repeatDaily) 1 else 1)
+        }
+        val intent = Intent(this, DigestReceiver::class.java).apply {
+            action = DigestReceiver.ACTION_DIGEST
+        }
+        val pending = PendingIntent.getBroadcast(
+            this, requestCode.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmMgr.canScheduleExactAlarms()) {
+                alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+            } else {
+                alarmMgr.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+            }
+        } else {
+            alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+        }
+    }
+
+    private fun scheduleWeeklyAlarm(alarmMgr: android.app.AlarmManager, day: Int, timeStr: String) {
+        val parts = timeStr.split(":")
+        if (parts.size != 2) return
+        val hour = parts[0].toIntOrNull() ?: return
+        val minute = parts[1].toIntOrNull() ?: return
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.DAY_OF_WEEK, when(day) { 0 -> java.util.Calendar.SUNDAY; 1 -> java.util.Calendar.MONDAY; 2 -> java.util.Calendar.TUESDAY; 3 -> java.util.Calendar.WEDNESDAY; 4 -> java.util.Calendar.THURSDAY; 5 -> java.util.Calendar.FRIDAY; else -> java.util.Calendar.SATURDAY })
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.WEEK_OF_YEAR, 1)
+        }
+        val intent = Intent(this, DigestReceiver::class.java).apply {
+            action = DigestReceiver.ACTION_DIGEST
+        }
+        val pending = PendingIntent.getBroadcast(
+            this, "digest_weekly_${day}_${hour}_${minute}".hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmMgr.canScheduleExactAlarms()) {
+                alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+            } else {
+                alarmMgr.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+            }
+        } else {
+            alarmMgr.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis, pending)
+        }
+    }
+
     fun cancelDigestAlarms() {
         try {
             val alarmMgr = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val requestCodes = mutableListOf<String>()
+            // Fixed times
             val times = spList("digest_times")
-            // Also cancel for any possible time we might have scheduled
-            val allTimes = times.toMutableSet()
-            for (h in 0..23) {
-                for (m in 0..59 step 15) {
-                    allTimes.add(String.format("%02d:%02d", h, m))
+            times.forEach { requestCodes.add("digest_fixed_${it.hashCode()}") }
+            // Interval
+            requestCodes.add("digest_interval")
+            // Daily
+            requestCodes.add("digest_daily")
+            // Weekly (all 7 days × 24 hours as safety net)
+            for (d in 0..6) {
+                for (h in 0..23) {
+                    requestCodes.add("digest_weekly_${d}_${h}_00")
+                    requestCodes.add("digest_weekly_${d}_${h}_30")
                 }
             }
-            allTimes.forEach { timeStr ->
-                val parts = timeStr.split(":")
-                if (parts.size != 2) return@forEach
-                val hour = parts[0].toIntOrNull() ?: return@forEach
-                val minute = parts[1].toIntOrNull() ?: return@forEach
+            requestCodes.forEach { code ->
                 val intent = Intent(this, DigestReceiver::class.java).apply {
                     action = DigestReceiver.ACTION_DIGEST
                 }
                 val pending = PendingIntent.getBroadcast(
-                    this, "digest_${hour}_${minute}".hashCode(), intent,
+                    this, code.hashCode(), intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 alarmMgr.cancel(pending)
@@ -1571,14 +1639,25 @@ Provide a clear, concise summary."""
         }
     }
 
-    fun flushPackage(pkg: String) {
+    private fun isDigestAppAllowed(pkg: String): Boolean {
+        val filter = spStr("digest_app_filter", "all")
+        if (filter == "all") return true
+        val appList = spList("digest_app_list")
+        return when (filter) {
+            "include_only" -> appList.contains(pkg)
+            "exclude" -> !appList.contains(pkg)
+            else -> true
+        }
+    }
+
+    fun flushPackage(pkg: String, isDigest: Boolean = true) {
         try {
             val group = buffer[pkg] ?: return
             val pending = group.getAllPendingNotifications()
             if (pending.isEmpty()) return
-            log("info", "Flush digest for $pkg — ${pending.size} notification(s)")
+            log("info", "Flush ${if (isDigest) "digest" else "package"} for $pkg — ${pending.size} notification(s)")
             val actions = pending.flatMap { it.actions }
-            val summary = callAI(pkg, pending)
+            val summary = if (isDigest) callAI(pkg, pending, isDigest = true) else callAI(pkg, pending)
             if (summary != null && summary.isNotBlank() && !isNoChangeResponse(summary)) {
                 val appIcon = getAppIcon(pkg)
                 val color = getNotificationColor(pkg)
@@ -1589,7 +1668,7 @@ Provide a clear, concise summary."""
                 group.clearProcessedNotifications(processedKeys)
                 buffer.entries.removeAll { it.value.getAllPendingNotifications().isEmpty() }
             } else {
-                log("info", "Flush digest for $pkg produced no summary — retaining notifications")
+                log("info", "Flush for $pkg produced no summary — retaining notifications")
             }
         } catch (e: Exception) {
             log("error", "flushPackage crash: ${e.javaClass.simpleName}: ${e.message}")
@@ -1598,8 +1677,13 @@ Provide a clear, concise summary."""
 
     fun flushAllPackages() {
         log("info", "Flush all packages triggered by digest alarm")
+        val scheduleType = spStr("digest_schedule_type", "fixed_times")
         buffer.keys.toList().forEach { pkg ->
-            flushPackage(pkg)
+            if (isDigestAppAllowed(pkg)) {
+                flushPackage(pkg, isDigest = true)
+            } else {
+                log("info", "Skipping $pkg — excluded from digest by app filter")
+            }
         }
         // Reschedule for next occurrence
         scheduleDigestAlarms()

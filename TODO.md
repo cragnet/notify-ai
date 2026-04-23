@@ -2,11 +2,17 @@
 
 ## Active Development
 
-### Recently Completed (v2.0.0)
+### Recently Completed (v2.0.1)
+- [x] Enhanced digest scheduling (fixed times, interval, daily, weekly)
+- [x] Per-app digest filtering (all / include-only / exclude)
+- [x] Separate digest AI prompt with dedicated default
+- [x] Digest settings screen
+- [x] Build fix — removed bad Gemini Nano dependency
+
+### Previously Completed (v2.0.0)
 - [x] Scheduled digest summaries (AlarmManager-based)
 - [x] Light / system theme toggle
 - [x] Auto-retry & offline queueing for failed AI calls
-- [x] Gemini Nano on-device via Google AI Edge / Play Services
 - [x] Navigation restructure — History as primary tab, cog icon for Settings
 - [x] CHANGELOG.md created
 - [x] Documentation updated (README, BUGS, TODO)

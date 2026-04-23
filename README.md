@@ -5,7 +5,9 @@ AI-powered notification summariser for Android. Capture notifications from selec
 ## Features
 
 - **Smart Batching:** Groups notifications from the same app, triggers summary when threshold reached
-- **Scheduled Digest Summaries:** Flush and summarise all buffered notifications at configurable times (e.g. 09:00, 13:00, 18:00), regardless of threshold
+- **Scheduled Digest Summaries:** Flush and summarise at fixed times, recurring intervals, daily, or weekly schedules — regardless of threshold
+- **Per-App Digest Filtering:** Include all, only selected, or exclude specific apps from digest summaries
+- **Separate Digest Prompt:** Custom AI prompt specifically optimised for periodic, multi-app rollups
 - **Auto-Retry & Offline Queue:** Failed AI calls are automatically retried with exponential backoff when connectivity returns
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
 - **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via Play Services), Ollama (self-hosted)

@@ -7,6 +7,7 @@ import 'app_selector_screen.dart';
 import 'import_export_screen.dart';
 import 'about_screen.dart';
 import 'prompt_settings_screen.dart';
+import 'digest_settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -146,85 +147,22 @@ class HomeScreen extends StatelessWidget {
               SwitchListTile(
                 secondary: const Icon(Icons.alarm, color: Colors.white54),
                 title: const Text('Scheduled digest summaries'),
-                subtitle: const Text(
-                    'Flush notifications and generate summaries at set times, regardless of threshold',
-                    style: TextStyle(color: Colors.white38, fontSize: 13)),
+                subtitle: Text(
+                  settings.digestEnabled
+                      ? '${settings.digestScheduleType == 'fixed_times' ? 'Fixed times' : settings.digestScheduleType == 'interval' ? 'Every ${settings.digestIntervalMinutes} min' : settings.digestScheduleType == 'daily' ? 'Daily at ${settings.digestDailyTime}' : 'Weekly on ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][settings.digestWeeklyDay]} ${settings.digestWeeklyTime}'}'
+                      : 'Flush and summarise notifications on a schedule, regardless of threshold',
+                  style: const TextStyle(color: Colors.white38, fontSize: 13)),
                 value: settings.digestEnabled,
                 onChanged: settings.setDigestEnabled,
               ),
               if (settings.digestEnabled) ...[
                 const Divider(color: Colors.white10, height: 1),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.schedule, color: Colors.white54, size: 20),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Digest times', style: TextStyle(fontWeight: FontWeight.w500)),
-                                Text('Summaries will be generated at these times',
-                                    style: TextStyle(color: Colors.white38, fontSize: 12)),
-                              ],
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: () async {
-                              final time = await showTimePicker(
-                                context: context,
-                                initialTime: TimeOfDay.now(),
-                                builder: (context, child) => Theme(
-                                  data: Theme.of(context).copyWith(
-                                    timePickerTheme: TimePickerThemeData(
-                                      backgroundColor: const Color(0xFF1E1E1E),
-                                      hourMinuteTextColor: Colors.white,
-                                      dayPeriodTextColor: Colors.white70,
-                                      dialHandColor: const Color(0xFF6B9E78),
-                                      dialBackgroundColor: const Color(0xFF2A2A2A),
-                                    ),
-                                  ),
-                                  child: child!,
-                                ),
-                              );
-                              if (time != null) {
-                                final formatted = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-                                await settings.addDigestTime(formatted);
-                              }
-                            },
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: const Color(0xFF6B9E78),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: settings.digestTimes.map((time) =>
-                          Chip(
-                            backgroundColor: const Color(0xFF2A3A2E),
-                            deleteIconColor: const Color(0xFF6B9E78),
-                            label: Text(time, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                            onDeleted: () => settings.removeDigestTime(time),
-                          ),
-                        ).toList(),
-                      ),
-                      if (settings.digestTimes.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 4),
-                          child: Text('No times added — tap Add to schedule',
-                              style: TextStyle(color: Colors.white24, fontSize: 12)),
-                        ),
-                    ],
-                  ),
+                ListTile(
+                  leading: const Icon(Icons.settings, color: Colors.white54),
+                  title: const Text('Configure digest'),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const DigestSettingsScreen())),
                 ),
               ],
             ],

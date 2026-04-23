@@ -1,5 +1,13 @@
 # Known Issues & Bug Tracker
 
+## Version 2.0.1
+
+### New Known Issues
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Gemini Nano dependency | ⚠️ Stub | Correct Maven artifact for Gemini Nano via Play Services is still being verified. Currently returns a placeholder. Use cloud providers (Gemini, OpenAI, Claude) for full functionality. |
+
 ## Version 2.0.0
 
 ### New Known Issues

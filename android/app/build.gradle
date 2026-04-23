@@ -78,5 +78,4 @@ flutter {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.0"
-    implementation "com.google.ai.edge.generativeai:generativeai:0.1.0"
 }
