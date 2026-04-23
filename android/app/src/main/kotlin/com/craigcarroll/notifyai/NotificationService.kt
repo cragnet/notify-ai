@@ -1148,39 +1148,45 @@ Provide a clear, concise summary."""
 
     private fun callGeminiNano(prompt: String): String? {
         return try {
-            val generativeModel = com.google.mlkit.genai.prompt.Generation.getClient()
-            val status = com.google.android.gms.tasks.Tasks.await(generativeModel.checkStatus())
-            when (status) {
-                com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE -> {
-                    val request = com.google.mlkit.genai.prompt.generateContentRequest(prompt) {
-                        maxOutputTokens = 150
+            kotlinx.coroutines.runBlocking {
+                val generation = com.google.mlkit.genai.prompt.Generation.getClient()
+                val status = generation.checkStatus()
+                when (status) {
+                    com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE -> {
+                        val request = com.google.mlkit.genai.prompt.generateContentRequest(
+                            com.google.mlkit.genai.prompt.TextPart(prompt)
+                        ) {
+                            maxOutputTokens = 150
+                        }
+                        val response = generation.generateContent(request)
+                        val text = response.text?.trim()
+                        if (text != null) {
+                            log("success", "Gemini Nano response OK — ${text.length} chars")
+                        } else {
+                            log("warn", "Gemini Nano returned empty response")
+                        }
+                        text
                     }
-                    val result = com.google.android.gms.tasks.Tasks.await(generativeModel.generateContent(request))
-                    val text = result.text?.trim()
-                    if (text != null) {
-                        log("success", "Gemini Nano response OK — ${text.length} chars")
-                    } else {
-                        log("warn", "Gemini Nano returned empty response")
+                    com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE -> {
+                        log("info", "Gemini Nano model downloadable — starting download")
+                        generation.download().collect { }
+                        log("info", "Gemini Nano download complete — retrying inference")
+                        val request = com.google.mlkit.genai.prompt.generateContentRequest(
+                            com.google.mlkit.genai.prompt.TextPart(prompt)
+                        ) {
+                            maxOutputTokens = 150
+                        }
+                        val response = generation.generateContent(request)
+                        response.text?.trim()
                     }
-                    text
-                }
-                com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE -> {
-                    log("info", "Gemini Nano model downloadable — starting download")
-                    com.google.android.gms.tasks.Tasks.await(generativeModel.download())
-                    log("info", "Gemini Nano download complete — retrying inference")
-                    val request = com.google.mlkit.genai.prompt.generateContentRequest(prompt) {
-                        maxOutputTokens = 150
+                    com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADING -> {
+                        log("warn", "Gemini Nano model is downloading — skipping")
+                        null
                     }
-                    val result = com.google.android.gms.tasks.Tasks.await(generativeModel.generateContent(request))
-                    result.text?.trim()
-                }
-                com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADING -> {
-                    log("warn", "Gemini Nano model is downloading — skipping")
-                    null
-                }
-                else -> {
-                    log("warn", "Gemini Nano unavailable on this device: $status")
-                    null
+                    else -> {
+                        log("warn", "Gemini Nano unavailable on this device: status=$status")
+                        null
+                    }
                 }
             }
         } catch (e: Exception) {

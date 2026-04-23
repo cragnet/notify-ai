@@ -16,6 +16,7 @@ import android.util.Base64
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 
 class MainActivity : FlutterActivity() {
@@ -210,10 +211,12 @@ class MainActivity : FlutterActivity() {
 
     private fun isGeminiNanoAvailable(): Boolean {
         return try {
-            val generativeModel = com.google.mlkit.genai.prompt.Generation.getClient()
-            val status = com.google.android.gms.tasks.Tasks.await(generativeModel.checkStatus())
-            status == com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE ||
-                status == com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE
+            runBlocking {
+                val generation = com.google.mlkit.genai.prompt.Generation.getClient()
+                val status = generation.checkStatus()
+                status == com.google.mlkit.genai.prompt.FeatureStatus.AVAILABLE ||
+                    status == com.google.mlkit.genai.prompt.FeatureStatus.DOWNLOADABLE
+            }
         } catch (e: Exception) {
             false
         }

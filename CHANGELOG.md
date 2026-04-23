@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.3] - 2026-04-23
+
+### Fixed
+
+- **Gemini Nano coroutine build failure** — replaced `Tasks.await()` with `runBlocking` for ML Kit `checkStatus()` and `generateContent()` calls. ML Kit GenAI Prompt API uses Kotlin `suspend` functions, not the Play Services Tasks API.
+- Updated `isGeminiNanoAvailable()` in `MainActivity.kt` to use `runBlocking` with proper coroutine API.
+
 ## [2.0.2] - 2026-04-23
 
 ### Fixed
