@@ -556,8 +556,6 @@ class NotificationService : NotificationListenerService() {
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
             group.notifications.add(newItem) // Keep for backwards compatibility
-            saveHistory(pkg, name, title, text, image != null)
-            recordStat(pkg, intercepted = true, summarised = false)
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
             // Update existing notification - but first check if content actually changed using hash
@@ -566,23 +564,16 @@ class NotificationService : NotificationListenerService() {
                 return
             }
 
-            // Update existing notification - remove old and add updated
-            // First remove from old conversation (use existingItem's conversation ID)
-            val removedOld = group.removeFromConversation(existingItem.conversationId, existingItem.sbnKey)
-            val removedFromList = group.notifications.removeAll { it.sbnKey == sbn.key }
-            log("info", "Removed old notification: convRemoved=$removedOld, listRemoved=$removedFromList")
-
-            // Also check if it exists in the new conversation (shouldn't happen, but safety check)
-            val existsInNewConv = group.getNotificationsForConversation(conversationId).any { it.sbnKey == sbn.key }
-            if (existsInNewConv) {
-                log("warn", "Notification ${sbn.key} already exists in conversation '$conversationId' - removing first")
-                group.removeFromConversation(conversationId, sbn.key)
-            }
-
+            // Content changed for an existing notification key.
+            // Apps like WhatsApp update the same key when stacking new messages.
+            // Keep the old notification (it represents a real message) and add the new one.
             group.addToConversation(newItem)
             group.notifications.add(newItem)
-            log("info", "Updated existing notification in conversation '$conversationId' for $name (content changed)")
+            log("info", "Added updated notification to conversation '$conversationId' for $name (content changed, kept old)")
         }
+
+        saveHistory(pkg, name, title, text, image != null)
+        recordStat(pkg, intercepted = true, summarised = false)
 
         // Get notification color if set
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

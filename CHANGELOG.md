@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.4] - 2026-04-23
+
+### Fixed
+
+- **Missing first message in WhatsApp summaries** — when WhatsApp updates the same notification key with stacked messages, the service was replacing the old notification instead of keeping it. Now both the old and new message content are preserved in the buffer, so all messages appear in the AI summary.
+
 ## [2.0.3] - 2026-04-23
 
 ### Fixed
