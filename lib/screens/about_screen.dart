@@ -15,7 +15,7 @@ class _AboutScreenState extends State<AboutScreen> {
   String _version = '';
   String _buildNumber = '';
   String _appName = 'Notify AI';
-  String _gitCommit = '9e97770';
+  String _gitCommit = '0992e9c';
 
   @override
   void initState() {
