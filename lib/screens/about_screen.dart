@@ -15,7 +15,7 @@ class _AboutScreenState extends State<AboutScreen> {
   String _version = '';
   String _buildNumber = '';
   String _appName = 'Notify AI';
-  String _gitCommit = '0992e9c';
+  String _gitCommit = '...';
 
   @override
   void initState() {
@@ -35,6 +35,16 @@ class _AboutScreenState extends State<AboutScreen> {
       setState(() {
         _version = '1.0.0';
         _buildNumber = '1';
+      });
+    }
+    try {
+      final commit = await rootBundle.loadString('assets/commit.txt');
+      setState(() {
+        _gitCommit = commit.trim();
+      });
+    } catch (e) {
+      setState(() {
+        _gitCommit = 'unknown';
       });
     }
   }
