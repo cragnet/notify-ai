@@ -354,6 +354,9 @@ class NotificationService : NotificationListenerService() {
             val pkg = sbn.packageName
             val group = buffer[pkg] ?: return
 
+            val preCount = group.getAllPendingNotifications().size
+            log("debug", "onNotificationRemoved for $pkg key=${sbn.key} preCount=$preCount debounce=${debounce.containsKey(pkg)} lastSummarized=${group.lastSummarizedKeys.size}")
+
             // If this notification contributed to the current summary, track its dismissal.
             // When the user (or the app) has dismissed every original that produced the
             // summary, cancel the summary too so it doesn't linger as stale.
@@ -376,13 +379,16 @@ class NotificationService : NotificationListenerService() {
             }
 
             val removed = group.removeNotificationByKey(sbn.key)
+            val postCount = group.getAllPendingNotifications().size
             if (removed) {
-                log("info", "Removed notification ${sbn.key} from buffer for $pkg (system/app cancelled)")
+                log("info", "Removed notification ${sbn.key} from buffer for $pkg (system/app cancelled) pre=$preCount post=$postCount")
                 // If no notifications remain, also cancel our summary so the user
                 // isn't left with a stale summary after dismissing originals
                 if (group.getAllPendingNotifications().isEmpty()) {
                     cancelSummaryNotification(pkg)
                 }
+            } else {
+                log("debug", "onNotificationRemoved: key ${sbn.key} not found in buffer for $pkg pre=$preCount post=$postCount")
             }
         } catch (e: Exception) {
             log("error", "onNotificationRemoved crash: ${e.javaClass.simpleName}: ${e.message}")
@@ -678,6 +684,7 @@ class NotificationService : NotificationListenerService() {
 
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
+            group.notifications.add(newItem)
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
             // Update existing notification - but first check if content actually changed using hash
@@ -690,10 +697,12 @@ class NotificationService : NotificationListenerService() {
             // Apps like WhatsApp update the same key when stacking new messages.
             // Keep the old notification (it represents a real message) and add the new one.
             group.addToConversation(newItem)
+            group.notifications.add(newItem)
             log("info", "Added updated notification to conversation '$conversationId' for $name (content changed, kept old)")
         }
 
         enforceBufferLimits(pkg)
+        log("debug", "Buffer state for $name: conv=${group.conversationBuffers.keys}, total=${group.getAllPendingNotifications().size}, notifList=${group.notifications.size}")
 
         saveHistory(pkg, name, title, text, image != null)
         recordStat(pkg, intercepted = true, summarised = false)
@@ -727,7 +736,11 @@ class NotificationService : NotificationListenerService() {
             val allNotifications = currentGroup.getAllPendingNotifications()
             val totalCount = allNotifications.size
 
-            log("info", "RUNNABLE CHECK for $name: total=$totalCount, threshold=$threshold")
+            val bufferDebug = currentGroup.conversationBuffers.map { (k, v) -> "$k=${v.size}" }.joinToString(", ")
+            log("info", "RUNNABLE CHECK for $name: total=$totalCount, threshold=$threshold, buffers=[$bufferDebug], notifList=${currentGroup.notifications.size}")
+            allNotifications.forEachIndexed { i, it ->
+                log("debug", "  [$i] key=${it.sbnKey} conv=${it.conversationId} hash=${it.contentHash.take(8)}")
+            }
 
             // Simple threshold check - just need enough notifications total
             if (totalCount < threshold) {
@@ -790,6 +803,7 @@ class NotificationService : NotificationListenerService() {
 
             // Clear all processed notifications from buffers
             currentGroup.clearProcessedNotifications(processedKeys)
+            currentGroup.notifications.removeAll { it.sbnKey in processedKeys }
 
             executor.execute {
                 // Check if this is an update to previous summary
