@@ -19,6 +19,8 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Theme Support:** Dark, Light, or System-default theme
 - **File Persistence:** Stats written to local storage for backup
 - **Cloud Builds:** APK built automatically via GitHub Actions on every push
+- **Auto-Incrementing Builds:** CI automatically bumps the build number on every release
+- **Buffer Memory Safety:** Hard limits prevent unbounded memory growth (50/app, 200 global, 24h TTL)
 
 ## Supported AI Providers
 
@@ -79,6 +81,15 @@ Go to Settings → Custom AI Prompt. Variables available:
 ### File Persistence
 Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
 
+## Recent Fixes
+
+- **Log spam eliminated:** Notifications from unselected apps no longer clutter logs
+- **Cross-conversation actions:** Action retention only happens when all buffered notifications belong to the same conversation
+- **Source dismissal race fixed:** Immediate dismissal sweep after summary posting closes the window where new notifications slip through
+- **WhatsApp buffer stall fixed:** Updates now correctly schedule a new runnable when the previous one expired
+- **Stale summary cancellation:** Summary is auto-cancelled when every original notification that produced it is dismissed
+- **Dynamic commit hash:** About screen shows the actual build commit instead of a hardcoded value
+
 ## Troubleshooting
 
 **No summaries appearing:**
@@ -86,6 +97,10 @@ Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-D
 - Verify AI provider configured (model name, API key, URL)
 - Check per-app settings — apps must be selected
 - Check threshold setting
+
+**Source notifications still visible after summary:**
+- Ensure "Dismiss original notifications" is enabled in Settings
+- Some apps (e.g. Teams, WhatsApp) aggressively re-post — this is app behaviour, not a bug
 
 **Battery optimisation:** Some manufacturers (Samsung, Xiaomi) reset this on reboot — re-grant permission.
 

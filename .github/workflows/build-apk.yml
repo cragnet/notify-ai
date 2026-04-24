@@ -31,6 +31,16 @@ jobs:
       - name: Generate commit hash
         run: bash generate_commit.sh
 
+      - name: Auto-increment build number
+        run: |
+          # Read current version line
+          CURRENT=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          NEXT=$((CURRENT + 1))
+          # Replace the build number
+          sed -i "s/\(^version: .*+\)$CURRENT/\1$NEXT/" pubspec.yaml
+          echo "Bumped build number: $CURRENT -> $NEXT"
+          cat pubspec.yaml | grep '^version:'
+
       - name: Build APK
         run: flutter build apk --release
 
