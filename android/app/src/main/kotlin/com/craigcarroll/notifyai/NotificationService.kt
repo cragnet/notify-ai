@@ -42,6 +42,11 @@ class NotificationService : NotificationListenerService() {
     companion object {
         private var instance: NotificationService? = null
 
+        // Hard limits to prevent unbounded in-memory growth
+        private const val MAX_BUFFERED_PER_APP = 50
+        private const val MAX_BUFFERED_GLOBAL = 200
+        private const val MAX_BUFFER_AGE_MS = 86400000L // 24 hours
+
         @JvmStatic
         fun getInstance(): NotificationService? = instance
 
@@ -397,6 +402,60 @@ class NotificationService : NotificationListenerService() {
         }
     }
 
+    /**
+     * Enforce per-app, global, and age-based limits on the notification buffer
+     * to prevent unbounded memory growth.
+     */
+    private fun enforceBufferLimits(targetPkg: String) {
+        val now = System.currentTimeMillis()
+
+        // 1. Evict stale notifications by age across all apps
+        buffer.values.forEach { group ->
+            val staleKeys = mutableSetOf<String>()
+            group.conversationBuffers.values.forEach { list ->
+                list.filter { now - it.timestamp > MAX_BUFFER_AGE_MS }
+                    .forEach { staleKeys.add(it.sbnKey) }
+            }
+            if (staleKeys.isNotEmpty()) {
+                group.clearProcessedNotifications(staleKeys)
+                group.lastSummarizedKeys.removeAll(staleKeys)
+                log("warn", "Evicted ${staleKeys.size} stale notification(s) from ${group.packageName}")
+            }
+        }
+
+        // 2. Per-app limit — evict oldest first
+        buffer.values.forEach { group ->
+            val all = group.getAllPendingNotifications()
+            if (all.size > MAX_BUFFERED_PER_APP) {
+                val toEvict = all.sortedBy { it.timestamp }
+                    .take(all.size - MAX_BUFFERED_PER_APP)
+                val evictKeys = toEvict.map { it.sbnKey }.toSet()
+                group.clearProcessedNotifications(evictKeys)
+                group.lastSummarizedKeys.removeAll(evictKeys)
+                log("warn", "Evicted ${evictKeys.size} notification(s) from ${group.packageName} — per-app limit ($MAX_BUFFERED_PER_APP)")
+            }
+        }
+
+        // 3. Global limit — evict oldest across all apps
+        val globalCount = buffer.values.sumOf { it.getAllPendingNotifications().size }
+        if (globalCount > MAX_BUFFERED_GLOBAL) {
+            val allItems = buffer.values.flatMap { group ->
+                group.getAllPendingNotifications().map { group.packageName to it }
+            }.sortedBy { it.second.timestamp }
+            val toEvict = allItems.take(globalCount - MAX_BUFFERED_GLOBAL)
+            toEvict.groupBy { it.first }.forEach { (pkgName, items) ->
+                val group = buffer[pkgName] ?: return@forEach
+                val evictKeys = items.map { it.second.sbnKey }.toSet()
+                group.clearProcessedNotifications(evictKeys)
+                group.lastSummarizedKeys.removeAll(evictKeys)
+                log("warn", "Evicted ${evictKeys.size} notification(s) from $pkgName — global limit ($MAX_BUFFERED_GLOBAL)")
+            }
+        }
+
+        // Drop empty groups to free the map entry itself
+        buffer.entries.removeAll { it.value.getAllPendingNotifications().isEmpty() }
+    }
+
     private fun handleNotification(sbn: StatusBarNotification) {
         try {
             _handleNotificationInternal(sbn)
@@ -454,6 +513,7 @@ class NotificationService : NotificationListenerService() {
         // Add to buffer
         group.addToConversation(itemWithHash)
         group.notifications.add(itemWithHash)
+        enforceBufferLimits(pkg)
         saveHistory(pkg, name, title, text, false)
         recordStat(pkg, intercepted = true, summarised = false)
         log("info", "[TEST] Added test notification to conversation '$conversationId' for $name")
@@ -461,7 +521,7 @@ class NotificationService : NotificationListenerService() {
         // Check threshold and trigger
         val threshold = spInt("notification_threshold", 2)
         val convCount = group.getConversationCount(conversationId)
-        val totalCount = group.notifications.size
+        val totalCount = group.getAllPendingNotifications().size
 
         log("info", "[TEST] Threshold check: conv=$convCount, total=$totalCount, threshold=$threshold")
 
@@ -618,7 +678,6 @@ class NotificationService : NotificationListenerService() {
 
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
-            group.notifications.add(newItem) // Keep for backwards compatibility
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
             // Update existing notification - but first check if content actually changed using hash
@@ -631,9 +690,10 @@ class NotificationService : NotificationListenerService() {
             // Apps like WhatsApp update the same key when stacking new messages.
             // Keep the old notification (it represents a real message) and add the new one.
             group.addToConversation(newItem)
-            group.notifications.add(newItem)
             log("info", "Added updated notification to conversation '$conversationId' for $name (content changed, kept old)")
         }
+
+        enforceBufferLimits(pkg)
 
         saveHistory(pkg, name, title, text, image != null)
         recordStat(pkg, intercepted = true, summarised = false)
@@ -730,7 +790,6 @@ class NotificationService : NotificationListenerService() {
 
             // Clear all processed notifications from buffers
             currentGroup.clearProcessedNotifications(processedKeys)
-            currentGroup.notifications.removeAll { it.sbnKey in processedKeys }
 
             executor.execute {
                 // Check if this is an update to previous summary
