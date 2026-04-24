@@ -1181,10 +1181,10 @@ $instructions
 
 Previous summary: $previousSummary
 
-New notifications to summarize:
+New notifications to incorporate:
 $msgs
 
-Provide a $hint that captures the new notifications. Be direct and concise."""
+Provide an updated $hint that covers BOTH the previous summary AND the new notifications above. Merge them into a single coherent summary. Do not discard or ignore the previous summary content. Be direct and concise."""
             } else {
                 """Summarize these $name notifications $hint:
 
