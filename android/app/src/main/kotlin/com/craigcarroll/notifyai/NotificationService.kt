@@ -136,6 +136,11 @@ class NotificationService : NotificationListenerService() {
         // Track notification IDs per conversation to update existing summaries
         val conversationNotificationIds: MutableMap<String?, Int> = mutableMapOf()
 
+        // Track keys of notifications that contributed to the current summary so we
+        // can cancel the summary when all originals are dismissed by the user.
+        val lastSummarizedKeys: MutableSet<String> = mutableSetOf()
+        val dismissedSummarizedKeys: MutableSet<String> = mutableSetOf()
+
         fun getOrCreateNotificationId(conversationId: String?): Int {
             return conversationNotificationIds.getOrPut(conversationId) {
                 // Generate consistent ID based on package + conversation
@@ -344,11 +349,24 @@ class NotificationService : NotificationListenerService() {
             val pkg = sbn.packageName
             val group = buffer[pkg] ?: return
 
+            // If this notification contributed to the current summary, track its dismissal.
+            // When the user (or the app) has dismissed every original that produced the
+            // summary, cancel the summary too so it doesn't linger as stale.
+            if (sbn.key in group.lastSummarizedKeys) {
+                group.dismissedSummarizedKeys.add(sbn.key)
+                if (group.dismissedSummarizedKeys.containsAll(group.lastSummarizedKeys)) {
+                    cancelSummaryNotification(pkg)
+                    group.lastSummarizedKeys.clear()
+                    group.dismissedSummarizedKeys.clear()
+                    log("info", "All originals dismissed — cancelled summary for $pkg")
+                }
+            }
+
             // If a runnable is pending for this package, the buffer will be cleared
             // when the runnable fires. Removing now would lose message content
             // before the summary can be generated (e.g. WhatsApp stacking).
             if (debounce.containsKey(pkg)) {
-                log("info", "Skipped removing ${sbn.key} — runnable pending for $pkg")
+                log("info", "Skipped removing ${sbn.key} from buffer — runnable pending for $pkg")
                 return
             }
 
@@ -391,13 +409,13 @@ class NotificationService : NotificationListenerService() {
 
     // Handle test notifications injected from MainActivity (for troubleshooting)
     private fun handleTestNotification(pkg: String, title: String, text: String, conversationId: String?, originalNotificationIds: List<Int>? = null) {
-        log("info", "[TEST] --- Notification from: $pkg ---")
-
         if (!spBool("service_enabled", true)) { log("info", "[TEST] Service disabled"); return }
 
         val selected = spList("enabled_apps_set")
         if (selected.isEmpty()) { log("warn", "[TEST] No apps selected"); return }
         if (!selected.contains(pkg)) { log("info", "[TEST] $pkg not selected — skipping"); return }
+
+        log("info", "[TEST] --- Notification from: $pkg ---")
 
         val name = appName(pkg)
 
@@ -524,13 +542,13 @@ class NotificationService : NotificationListenerService() {
         val pkg = sbn.packageName
         if (pkg == applicationContext.packageName) return
 
-        log("info", "--- Notification from: $pkg ---")
-
         if (!spBool("service_enabled", true)) { log("info", "Service disabled"); return }
 
         val selected = spList("enabled_apps_set")
         if (selected.isEmpty()) { log("warn", "No apps selected"); return }
         if (!selected.contains(pkg)) { log("info", "$pkg not selected — skipping"); return }
+
+        log("info", "--- Notification from: $pkg ---")
 
         val extras = try { sbn.notification.extras } catch (e: Exception) { null }
             ?: run { log("warn", "Cannot access notification extras"); return }
@@ -665,15 +683,35 @@ class NotificationService : NotificationListenerService() {
 
             log("info", "Processing $totalCount notification(s) from $name")
 
-            // Collect all actions
-            val allActions = allNotifications.flatMap { it.actions }.distinctBy { it.title?.toString() }
+            // Only retain original actions when every buffered notification belongs to the
+            // same conversation.  Cross-conversation "Mark as read" / "Reply" actions target
+            // a single chat, so attaching them to a multi-conversation summary would only
+            // work for one of the bundled chats.
+            val retainActions = spBool("retain_original_actions", true)
+            val uniqueConversations = allNotifications.map { it.conversationId }.distinct()
+            val allActions = if (retainActions && uniqueConversations.size == 1) {
+                allNotifications.flatMap { it.actions }.distinctBy { it.title?.toString() }
+            } else {
+                if (retainActions && uniqueConversations.size > 1) {
+                    log("warn", "Skipping action retention — $totalCount notifications span ${uniqueConversations.size} conversations")
+                }
+                emptyList()
+            }
 
-            // Dismiss processed notifications (skip test keys — they are not real system notifications)
+            // Dismiss processed notifications (skip test keys — they are not real system notifications).
+            // When retain_original_actions is enabled, keep originals that have actions so the
+            // retained PendingIntents on the summary still reference active notifications.
+            val keptActionKeys = mutableSetOf<String>()
             val activeKeys = if (spBool("dismiss_on_app_usage", true)) {
                 val active = mutableSetOf<String>()
                 allNotifications.forEach { item ->
                     if (item.sbnKey.startsWith("test_")) {
                         log("info", "Skipping dismiss for test notification: ${item.sbnKey}")
+                        return@forEach
+                    }
+                    if (retainActions && item.actions.isNotEmpty()) {
+                        log("info", "Keeping original with actions: ${item.sbnKey}")
+                        keptActionKeys.add(item.sbnKey)
                         return@forEach
                     }
                     try {
@@ -712,6 +750,12 @@ class NotificationService : NotificationListenerService() {
                         currentGroup.summary = summary
                         currentGroup.summaryTimestamp = System.currentTimeMillis()
 
+                        // Track keys that produced this summary so we can cancel the summary
+                        // when the user dismisses all of the original notifications.
+                        currentGroup.lastSummarizedKeys.clear()
+                        currentGroup.lastSummarizedKeys.addAll(processedKeys)
+                        currentGroup.dismissedSummarizedKeys.clear()
+
                         val appIcon = getAppIcon(pkg)
                         val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
                         val notifId = currentGroup.getOrCreateNotificationId("summary")
@@ -724,9 +768,8 @@ class NotificationService : NotificationListenerService() {
                         handler.postDelayed({
                             retryDismiss(pkg, activeKeys)
                             // Fallback: dismiss any remaining active notifications from this package
-                            // that aren't our own summary. This handles apps that update notification
-                            // keys between capture and dismiss.
-                            dismissRemainingActive(pkg, notifId)
+                            // that aren't our own summary. Skip originals we intentionally kept for actions.
+                            dismissRemainingActive(pkg, notifId, keptActionKeys)
                         }, 600)
                     }
                 } else {
@@ -850,12 +893,12 @@ class NotificationService : NotificationListenerService() {
      * Dismisses any remaining active notifications from the target package
      * after a summary has been posted. This catches notifications whose keys
      * changed between capture and dismiss (e.g. WhatsApp stacking updates).
-     * Skips our own summary notification.
+     * Skips our own summary notification and any keys in [skipKeys].
      */
-    private fun dismissRemainingActive(pkg: String, summaryNotifId: Int) {
+    private fun dismissRemainingActive(pkg: String, summaryNotifId: Int, skipKeys: Set<String> = emptySet()) {
         try {
             val active = getActiveNotifications()?.filter {
-                it.packageName == pkg && it.id != summaryNotifId
+                it.packageName == pkg && it.id != summaryNotifId && it.key !in skipKeys
             } ?: emptyList()
             if (active.isEmpty()) return
             log("info", "dismissRemainingActive: found ${active.size} remaining notification(s) from $pkg")
