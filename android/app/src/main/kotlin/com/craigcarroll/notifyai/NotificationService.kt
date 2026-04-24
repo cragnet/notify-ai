@@ -719,12 +719,19 @@ class NotificationService : NotificationListenerService() {
         val totalCount = group.getAllPendingNotifications().size
         log("info", "CAPTURED conv=$convCount/total=$totalCount from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
 
-        // For notification updates: only restart debounce if notification is new
-        // This prevents the same notification from resetting the timer repeatedly
+        // For notification updates: only restart debounce if notification is new.
+        // This prevents the same notification from resetting the timer repeatedly.
+        // However, if the previous runnable already fired and deferred (removing the
+        // debounce), we must schedule a fresh runnable or the buffer will stall.
         if (existingItem == null) {
             // Cancel any pending debounce for this app only for NEW notifications
             debounce[pkg]?.let { handler.removeCallbacks(it) }
-        } else {
+        }
+
+        // Schedule runnable for NEW notifications OR when no debounce is pending.
+        // Updates keep the existing runnable only if it is still alive.
+        val scheduleRunnable = existingItem == null || !debounce.containsKey(pkg)
+        if (!scheduleRunnable) {
             log("info", "Notification update for $name - keeping existing debounce timer")
         }
 
@@ -852,8 +859,8 @@ class NotificationService : NotificationListenerService() {
             }
         }
 
-        // Only schedule processing for NEW notifications
-        if (existingItem == null) {
+        // Schedule runnable for NEW notifications or when the previous one expired.
+        if (scheduleRunnable) {
             debounce[pkg] = runnable
             if (totalCount >= threshold) {
                 // Threshold reached — fire after short delay
