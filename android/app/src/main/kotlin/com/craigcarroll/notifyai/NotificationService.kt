@@ -843,12 +843,17 @@ class NotificationService : NotificationListenerService() {
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
 
+                        // Immediate sweep for any remaining active notifications from this package.
+                        // This closes the race window where apps (e.g. Teams) post new notifications
+                        // while the AI call is in flight.
+                        dismissRemainingActive(pkg, notifId, keptActionKeys)
+
                         // Verify originals were dismissed; retry any that remain.
                         // Also catch notifications whose keys changed (e.g. WhatsApp stacking).
                         handler.postDelayed({
                             retryDismiss(pkg, activeKeys)
-                            // Fallback: dismiss any remaining active notifications from this package
-                            // that aren't our own summary. Skip originals we intentionally kept for actions.
+                            // Second-pass fallback: dismiss any stragglers that appeared after
+                            // the immediate sweep.
                             dismissRemainingActive(pkg, notifId, keptActionKeys)
                         }, 600)
                     }
