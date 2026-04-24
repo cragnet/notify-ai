@@ -778,20 +778,12 @@ class NotificationService : NotificationListenerService() {
                 emptyList()
             }
 
-            // Dismiss processed notifications (skip test keys — they are not real system notifications).
-            // When retain_original_actions is enabled, keep originals that have actions so the
-            // retained PendingIntents on the summary still reference active notifications.
-            val keptActionKeys = mutableSetOf<String>()
+            // Dismiss all processed notifications (skip test keys — they are not real system notifications).
             val activeKeys = if (spBool("dismiss_on_app_usage", true)) {
                 val active = mutableSetOf<String>()
                 allNotifications.forEach { item ->
                     if (item.sbnKey.startsWith("test_")) {
                         log("info", "Skipping dismiss for test notification: ${item.sbnKey}")
-                        return@forEach
-                    }
-                    if (retainActions && item.actions.isNotEmpty()) {
-                        log("info", "Keeping original with actions: ${item.sbnKey}")
-                        keptActionKeys.add(item.sbnKey)
                         return@forEach
                     }
                     try {
@@ -846,7 +838,7 @@ class NotificationService : NotificationListenerService() {
                         // Immediate sweep for any remaining active notifications from this package.
                         // This closes the race window where apps (e.g. Teams) post new notifications
                         // while the AI call is in flight.
-                        dismissRemainingActive(pkg, notifId, keptActionKeys)
+                        dismissRemainingActive(pkg, notifId)
 
                         // Verify originals were dismissed; retry any that remain.
                         // Also catch notifications whose keys changed (e.g. WhatsApp stacking).
@@ -854,7 +846,7 @@ class NotificationService : NotificationListenerService() {
                             retryDismiss(pkg, activeKeys)
                             // Second-pass fallback: dismiss any stragglers that appeared after
                             // the immediate sweep.
-                            dismissRemainingActive(pkg, notifId, keptActionKeys)
+                            dismissRemainingActive(pkg, notifId)
                         }, 600)
                     }
                 } else {
