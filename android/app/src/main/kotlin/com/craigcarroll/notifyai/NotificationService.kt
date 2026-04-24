@@ -47,6 +47,10 @@ class NotificationService : NotificationListenerService() {
         private const val MAX_BUFFERED_GLOBAL = 200
         private const val MAX_BUFFER_AGE_MS = 86400000L // 24 hours
 
+        // Map for wrapping original notification actions so we can cancel our summary
+        // when the user taps an action on it.
+        val actionMap = mutableMapOf<String, PendingIntent>()
+
         @JvmStatic
         fun getInstance(): NotificationService? = instance
 
@@ -761,6 +765,12 @@ class NotificationService : NotificationListenerService() {
             // Get all notification keys to process and clear
             val processedKeys = allNotifications.map { it.sbnKey }.toSet()
 
+            // Track keys BEFORE dismissing, so onNotificationRemoved can match them
+            // when the system/app later dismisses the originals.
+            currentGroup.lastSummarizedKeys.clear()
+            currentGroup.lastSummarizedKeys.addAll(processedKeys)
+            currentGroup.dismissedSummarizedKeys.clear()
+
             log("info", "Processing $totalCount notification(s) from $name")
 
             // Only retain original actions when every buffered notification belongs to the
@@ -821,12 +831,6 @@ class NotificationService : NotificationListenerService() {
                         // Store summary for potential future updates
                         currentGroup.summary = summary
                         currentGroup.summaryTimestamp = System.currentTimeMillis()
-
-                        // Track keys that produced this summary so we can cancel the summary
-                        // when the user dismisses all of the original notifications.
-                        currentGroup.lastSummarizedKeys.clear()
-                        currentGroup.lastSummarizedKeys.addAll(processedKeys)
-                        currentGroup.dismissedSummarizedKeys.clear()
 
                         val appIcon = getAppIcon(pkg)
                         val notificationColor = currentGroup.notificationColor ?: getNotificationColor(pkg)
@@ -1075,8 +1079,36 @@ class NotificationService : NotificationListenerService() {
             log("info", "Removed $dupesRemoved duplicate notification(s) by content")
         }
 
+        // Filter out notifications with effectively empty or sender-only text.
+        // WhatsApp sometimes produces text like "~ Paul Smith: " with no actual message body.
+        val meaningfulNotifications = uniqueNotifications.filter { item ->
+            val trimmed = item.text.trim()
+            if (trimmed.isEmpty()) {
+                log("info", "Filtered notification with empty text from ${item.title}")
+                return@filter false
+            }
+            if (trimmed.length < 2) {
+                log("info", "Filtered notification with near-empty text: '${trimmed}'")
+                return@filter false
+            }
+            // Skip text that appears to be just a sender name prefix with no message after colon
+            if (trimmed.matches(Regex("~?\\s*[^:]{1,30}:\\s*$"))) {
+                log("info", "Filtered sender-only text: '${trimmed.take(40)}'")
+                return@filter false
+            }
+            true
+        }
+
+        if (meaningfulNotifications.isEmpty()) {
+            log("warn", "All ${uniqueNotifications.size} notification(s) had empty/meaningless text — skipping AI call")
+            return null
+        }
+        if (meaningfulNotifications.size < uniqueNotifications.size) {
+            log("info", "Filtered ${uniqueNotifications.size - meaningfulNotifications.size} empty/meaningless notification(s), ${meaningfulNotifications.size} remain")
+        }
+
         // Group notifications by sender/conversation for better AI understanding
-        val groupedBySender = uniqueNotifications.groupBy { it.conversationId ?: it.title }
+        val groupedBySender = meaningfulNotifications.groupBy { it.conversationId ?: it.title }
         val msgs = if (groupedBySender.size > 1) {
             // Multiple senders - group them with headers
             groupedBySender.entries.joinToString("\n\n") { (sender, notifs) ->
@@ -1087,14 +1119,14 @@ class NotificationService : NotificationListenerService() {
             }
         } else {
             // Single sender - simple bullet list, deduped
-            val uniqueTexts = uniqueNotifications.distinctBy { it.text }
+            val uniqueTexts = meaningfulNotifications.distinctBy { it.text }
             uniqueTexts.joinToString("\n") { "• ${it.title}: ${it.text}" }
         }
 
         val customPrompt = if (isDigest) spStr("digest_prompt", "") else spStr("custom_prompt", "")
 
         // Debug: log what we're sending
-        log("info", "Building prompt for $name with ${uniqueNotifications.size} unique notifications (was ${notifications.size}) from ${groupedBySender.size} sender(s)")
+        log("info", "Building prompt for $name with ${meaningfulNotifications.size} meaningful notifications (was ${notifications.size}) from ${groupedBySender.size} sender(s)")
         log("info", "Notifications content: ${msgs.take(200)}")
         log("info", "msgs variable length: ${msgs.length} chars")
 
@@ -1546,15 +1578,44 @@ Provide a clear, concise summary."""
             log("info", "Set notification color for $name: #${Integer.toHexString(it)}")
         }
 
+        // Compute notification ID early so action wrappers can reference it
+        val finalNotificationId = notificationId ?: "${pkg}:summary:${System.currentTimeMillis()}".hashCode()
+
         // Retain original notification actions (Reply, Mark as read, etc.)
+        // We wrap each action so tapping it first cancels our summary notification,
+        // then forwards the original intent. Without this the summary lingers
+        // after the user taps "Mark as read" because the original app's PendingIntent
+        // only knows how to dismiss its own notification.
         val retainActions = spBool("retain_original_actions", true)
         log("info", "Actions settings: retain_original_actions=$retainActions, found=${actions.size}")
         if (retainActions && actions.isNotEmpty()) {
             log("info", "Attaching ${actions.size} original action(s) to summary")
-            actions.take(5).forEach { action ->
+            actions.take(5).forEachIndexed { index, action ->
                 try {
-                    builder.addAction(action)
-                    log("info", "  + action: ${action.title}")
+                    val actionIntent = action.actionIntent
+                    if (actionIntent != null) {
+                        val actionKey = "${pkg}_${finalNotificationId}_${index}_${System.currentTimeMillis()}"
+                        actionMap[actionKey] = actionIntent
+                        val wrapIntent = Intent(this, SummaryActionReceiver::class.java).apply {
+                            putExtra("pkg", pkg)
+                            putExtra("notifId", finalNotificationId)
+                            putExtra("actionKey", actionKey)
+                        }
+                        val wrapPi = PendingIntent.getBroadcast(
+                            this, actionKey.hashCode(), wrapIntent,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                        val wrappedAction = Notification.Action.Builder(
+                            android.R.drawable.ic_menu_send,
+                            action.title,
+                            wrapPi
+                        ).build()
+                        builder.addAction(wrappedAction)
+                        log("info", "  + wrapped action: ${action.title}")
+                    } else {
+                        builder.addAction(action)
+                        log("info", "  + action (no intent): ${action.title}")
+                    }
                 } catch (e: Exception) {
                     log("warn", "  Could not attach action '${action.title}': ${e.javaClass.simpleName}: ${e.message}")
                 }
@@ -1563,8 +1624,6 @@ Provide a clear, concise summary."""
             log("info", "No actions attached: retainActions=$retainActions, actionsEmpty=${actions.isEmpty()}")
         }
 
-        // Use consistent notification ID per conversation to update existing summary
-        val finalNotificationId = notificationId ?: "${pkg}:summary:${System.currentTimeMillis()}".hashCode()
         nm.notify(finalNotificationId, builder.build())
         log("success", "Summary notification posted for $name (id=$finalNotificationId)")
     }

@@ -68,6 +68,10 @@
             android:name=".DigestReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".SummaryActionReceiver"
+            android:exported="false" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
