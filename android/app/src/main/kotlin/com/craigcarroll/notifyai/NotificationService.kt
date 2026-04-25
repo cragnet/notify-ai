@@ -216,6 +216,10 @@ class NotificationService : NotificationListenerService() {
     // Per-package buffer for grouped notifications
     private val buffer = mutableMapOf<String, NotificationGroup>()
     private val debounce = mutableMapOf<String, Runnable>()
+    // Track whether the pending runnable is a short-delay (threshold-met) one.
+    // Once threshold is reached we stop rescheduling so rapid notifications
+    // cannot push the timer back indefinitely.
+    private val debounceShortDelay = mutableMapOf<String, Boolean>()
     private val DEBOUNCE_MS = 3000L
     private val STATUS_NOTIF_ID = "notifyai_status".hashCode()
 
@@ -551,6 +555,7 @@ class NotificationService : NotificationListenerService() {
             }
 
             debounce.remove(pkg)
+            debounceShortDelay.remove(pkg)
             val processedKeys = allNotifications.map { it.sbnKey }.toSet()
             log("info", "[TEST] Processing $currentTotal notification(s) from $name")
 
@@ -600,9 +605,11 @@ class NotificationService : NotificationListenerService() {
 
         debounce[pkg] = runnable
         if (totalCount >= threshold) {
+            debounceShortDelay[pkg] = true
             handler.postDelayed(runnable, 800L)
             log("info", "[TEST] Threshold met ($totalCount >= $threshold) — triggering in 800ms")
         } else {
+            debounceShortDelay[pkg] = false
             handler.postDelayed(runnable, DEBOUNCE_MS)
             log("info", "[TEST] Below threshold ($totalCount/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
         }
@@ -728,13 +735,27 @@ class NotificationService : NotificationListenerService() {
         // However, if the previous runnable already fired and deferred (removing the
         // debounce), we must schedule a fresh runnable or the buffer will stall.
         if (existingItem == null) {
-            // Cancel any pending debounce for this app only for NEW notifications
-            debounce[pkg]?.let { handler.removeCallbacks(it) }
+            // Cancel any pending debounce for this app only for NEW notifications,
+            // but NOT if a short-delay (threshold-met) runnable is already waiting.
+            // Once threshold is reached we let the timer fire so rapid notifications
+            // cannot delay the summary indefinitely.
+            val isShortDelayPending = debounceShortDelay[pkg] == true
+            if (!isShortDelayPending) {
+                debounce[pkg]?.let { handler.removeCallbacks(it) }
+                debounce.remove(pkg)
+                debounceShortDelay.remove(pkg)
+            }
         }
 
         // Schedule runnable for NEW notifications OR when no debounce is pending.
         // Updates keep the existing runnable only if it is still alive.
-        val scheduleRunnable = existingItem == null || !debounce.containsKey(pkg)
+        // Once threshold is met and an 800ms runnable is pending, new notifications
+        // simply accumulate in the buffer rather than resetting the timer.
+        val scheduleRunnable = if (debounce.containsKey(pkg)) {
+            existingItem == null && debounceShortDelay[pkg] != true
+        } else {
+            true
+        }
         if (!scheduleRunnable) {
             log("info", "Notification update for $name - keeping existing debounce timer")
         }
@@ -756,11 +777,13 @@ class NotificationService : NotificationListenerService() {
             // Simple threshold check - just need enough notifications total
             if (totalCount < threshold) {
                 debounce.remove(pkg)
+                debounceShortDelay.remove(pkg)
                 log("info", "DEFERRING $name - only $totalCount total notifications, need $threshold")
                 return@Runnable
             }
 
             debounce.remove(pkg)
+            debounceShortDelay.remove(pkg)
 
             // Get all notification keys to process and clear
             val processedKeys = allNotifications.map { it.sbnKey }.toSet()
@@ -839,6 +862,11 @@ class NotificationService : NotificationListenerService() {
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
 
+                        // Clear dismissal tracking so retryDismiss / dismissRemainingActive
+                        // (scheduled 600ms later) don't cancel the summary we just posted.
+                        currentGroup.lastSummarizedKeys.clear()
+                        currentGroup.dismissedSummarizedKeys.clear()
+
                         // Immediate sweep for any remaining active notifications from this package.
                         // This closes the race window where apps (e.g. Teams) post new notifications
                         // while the AI call is in flight.
@@ -865,10 +893,12 @@ class NotificationService : NotificationListenerService() {
             debounce[pkg] = runnable
             if (totalCount >= threshold) {
                 // Threshold reached — fire after short delay
+                debounceShortDelay[pkg] = true
                 handler.postDelayed(runnable, 800L)
                 log("info", "Threshold met ($totalCount >= $threshold) — triggering in 800ms")
             } else {
                 // Below threshold — wait longer for more notifications
+                debounceShortDelay[pkg] = false
                 handler.postDelayed(runnable, DEBOUNCE_MS)
                 log("info", "Below threshold ($totalCount/$threshold) — waiting ${DEBOUNCE_MS}ms for more")
             }
