@@ -11,6 +11,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Auto-Retry & Offline Queue:** Failed AI calls are automatically retried with exponential backoff when connectivity returns
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
 - **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via ML Kit), Ollama (self-hosted)
+- **Automatic Fallback:** Configure primary, secondary, and tertiary AI providers — if one fails, the next is tried automatically
 - **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
 - **Click to Open:** Tap any summary notification to jump directly to the originating app
 - **App Icons & Colors:** Summary notifications show the app's icon and original notification color
@@ -31,6 +32,10 @@ AI-powered notification summariser for Android. Capture notifications from selec
 | Gemini Nano | No | On-device AI (Pixel 8+ or supported devices only) |
 | Claude (Anthropic) | Yes | Via OpenRouter or direct |
 | OpenRouter | Yes | Access to many models including free tiers |
+| Local / Custom | Optional | Any OpenAI-compatible local endpoint |
+
+### Backup Providers
+Set up to three tiers of AI providers (primary, secondary, tertiary). If the primary fails or is misconfigured, the app automatically tries the secondary, then the tertiary. Each backup uses its own saved model, URL and API key configuration.
 
 ## Quick Start
 
@@ -41,7 +46,8 @@ AI-powered notification summariser for Android. Capture notifications from selec
    - Battery optimisation exclusion
 3. **Configure AI Provider:**
    - Open Settings → AI Provider
-   - Select provider, enter API key, model name
+   - Select primary provider, enter API key, model name
+   - Optionally set Backup provider 1 and Backup provider 2 for automatic fallback
    - For Ollama Cloud: use OpenAI Compatible with `https://ollama.com/v1`
 4. **Select Apps:** Per-app settings → choose apps to monitor
 5. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
@@ -97,6 +103,7 @@ Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-D
 - Verify AI provider configured (model name, API key, URL)
 - Check per-app settings — apps must be selected
 - Check threshold setting
+- If using backup providers, verify at least one tier is fully configured and reachable
 
 **Source notifications still visible after summary:**
 - Ensure "Dismiss original notifications" is enabled in Settings

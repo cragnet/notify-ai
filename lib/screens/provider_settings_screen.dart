@@ -16,6 +16,8 @@ class ProviderSettingsScreen extends StatefulWidget {
 
 class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   late String _selectedProvider;
+  String _backupProvider1 = '';
+  String _backupProvider2 = '';
   final _keyCtrl = TextEditingController();
   final _urlCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
@@ -34,6 +36,8 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
       _selectedProvider = s.aiProvider;
       // Default to ollama if current provider no longer exists
       if (providerById(_selectedProvider) == null) _selectedProvider = 'ollama';
+      _backupProvider1 = s.backupProvider1;
+      _backupProvider2 = s.backupProvider2;
       _keyCtrl.text = s.getApiKey(_selectedProvider);
       _urlCtrl.text = s.getBaseUrl(_selectedProvider);
       _modelCtrl.text = s.getModel(_selectedProvider);
@@ -62,6 +66,8 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   Future<void> _save() async {
     final s = context.read<SettingsProvider>();
     await s.setAiProvider(_selectedProvider);
+    await s.setBackupProvider1(_backupProvider1);
+    await s.setBackupProvider2(_backupProvider2);
     if (_keyCtrl.text.isNotEmpty) await s.setApiKey(_selectedProvider, _keyCtrl.text.trim());
     if (_urlCtrl.text.isNotEmpty) await s.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
     if (_modelCtrl.text.isNotEmpty) await s.setModel(_selectedProvider, _modelCtrl.text.trim());
@@ -100,6 +106,43 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
               ]);
             }).toList())),
 
+            const SizedBox(height: 16),
+            _Label('Backup provider 1'),
+            _Card(child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: DropdownButtonFormField<String>(
+                value: _backupProvider1.isEmpty ? null : _backupProvider1,
+                isExpanded: true,
+                decoration: const InputDecoration(hintText: 'None (disabled)'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('None (disabled)', style: TextStyle(color: Colors.white38))),
+                  ...kProviders.map((p) => DropdownMenuItem(value: p.id, child: Text(p.displayName, style: const TextStyle(color: Colors.white70)))),
+                ],
+                onChanged: (v) { setState(() { _backupProvider1 = v ?? ''; _saved = false; }); },
+                dropdownColor: const Color(0xFF2A2A2A),
+              ),
+            )),
+            const SizedBox(height: 8),
+            _Label('Backup provider 2'),
+            _Card(child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: DropdownButtonFormField<String>(
+                value: _backupProvider2.isEmpty ? null : _backupProvider2,
+                isExpanded: true,
+                decoration: const InputDecoration(hintText: 'None (disabled)'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('None (disabled)', style: TextStyle(color: Colors.white38))),
+                  ...kProviders.map((p) => DropdownMenuItem(value: p.id, child: Text(p.displayName, style: const TextStyle(color: Colors.white70)))),
+                ],
+                onChanged: (v) { setState(() { _backupProvider2 = v ?? ''; _saved = false; }); },
+                dropdownColor: const Color(0xFF2A2A2A),
+              ),
+            )),
+            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+              child: Text('Backups use the model, URL and API key already configured for each provider. If the primary fails, the app tries backup 1, then backup 2.', style: TextStyle(color: Colors.white30, fontSize: 11)),
+            ),
             const SizedBox(height: 16),
             _Label('Configuration'),
             _Card(child: Padding(

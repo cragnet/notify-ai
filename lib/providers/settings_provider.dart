@@ -14,6 +14,8 @@ class SettingsProvider extends ChangeNotifier {
   bool serviceEnabled = true;
 
   String aiProvider = 'ollama';
+  String backupProvider1 = '';
+  String backupProvider2 = '';
   Map<String, String> providerModels = {};
   Map<String, String> providerBaseUrls = {};
   Map<String, String> apiKeys = {};
@@ -65,6 +67,8 @@ Be brief but informative.''';
     setupComplete = _prefs.getBool('setup_complete') ?? false;
     serviceEnabled = _prefs.getBool('service_enabled') ?? true;
     aiProvider = _prefs.getString('ai_provider') ?? 'ollama';
+    backupProvider1 = _prefs.getString('backup_provider_1') ?? '';
+    backupProvider2 = _prefs.getString('backup_provider_2') ?? '';
     summaryLength = _prefs.getInt('summary_length') ?? 2;
     notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
@@ -119,6 +123,18 @@ Be brief but informative.''';
   Future<void> setAiProvider(String provider) async {
     aiProvider = provider;
     await _prefs.setString('ai_provider', provider);
+    notifyListeners();
+  }
+
+  Future<void> setBackupProvider1(String provider) async {
+    backupProvider1 = provider;
+    await _prefs.setString('backup_provider_1', provider);
+    notifyListeners();
+  }
+
+  Future<void> setBackupProvider2(String provider) async {
+    backupProvider2 = provider;
+    await _prefs.setString('backup_provider_2', provider);
     notifyListeners();
   }
 

@@ -72,6 +72,40 @@ const kProviders = [
     // Note: uses ML Kit GenAI Prompt API. Requires Google Play Services and a supported device.
     // First use may trigger an on-device model download (~1-2 GB).
   ),
+  ProviderConfig(
+    id: 'claude',
+    displayName: 'Claude (Anthropic)',
+    defaultModel: 'claude-3-5-haiku-latest',
+    defaultBaseUrl: 'https://api.anthropic.com',
+    needsApiKey: true,
+    needsBaseUrl: true,
+    modelHint: 'e.g. claude-3-5-haiku-latest, claude-3-5-sonnet-latest',
+    urlHint: 'https://api.anthropic.com',
+    keyHint: 'sk-ant-api03-...',
+  ),
+  ProviderConfig(
+    id: 'openrouter',
+    displayName: 'OpenRouter',
+    defaultModel: 'openai/gpt-4o-mini',
+    defaultBaseUrl: 'https://openrouter.ai',
+    needsApiKey: true,
+    needsBaseUrl: true,
+    modelHint: 'e.g. openai/gpt-4o-mini, meta-llama/llama-3.1-8b-instruct',
+    urlHint: 'https://openrouter.ai',
+    keyHint: 'sk-or-v1-...',
+  ),
+  ProviderConfig(
+    id: 'local',
+    displayName: 'Local / Custom',
+    defaultModel: '',
+    defaultBaseUrl: '',
+    needsApiKey: false,
+    apiKeyOptional: true,
+    needsBaseUrl: true,
+    modelHint: 'e.g. llama3.2:3b',
+    urlHint: 'http://192.168.1.x:1234/v1',
+    keyHint: 'Optional — leave blank if not required',
+  ),
 ];
 
 ProviderConfig? providerById(String id) {

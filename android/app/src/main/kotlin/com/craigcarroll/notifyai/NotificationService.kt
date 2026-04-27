@@ -1068,23 +1068,21 @@ class NotificationService : NotificationListenerService() {
             return null
         }
 
-        val provider = spStr("ai_provider", "ollama")
-        val apiKey  = spStr("api_key_$provider", "")
-        val model   = spStr("model_$provider", "")
-        val baseUrl = spStr("base_url_$provider", "")
+        // Build ordered provider list with deduplication
+        val providers = mutableListOf<String>()
+        val primary = spStr("ai_provider", "ollama")
+        if (primary.isNotEmpty()) providers.add(primary)
+        val backup1 = spStr("backup_provider_1", "")
+        if (backup1.isNotEmpty() && !providers.contains(backup1)) providers.add(backup1)
+        val backup2 = spStr("backup_provider_2", "")
+        if (backup2.isNotEmpty() && !providers.contains(backup2)) providers.add(backup2)
+
+        if (providers.isEmpty()) {
+            log("error", "AI SKIP: no providers configured")
+            return null
+        }
+
         val length  = spInt("summary_length", 2)
-
-        log("info", "AI call: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()} msgs=${notifications.size} hasPrevious=${previousSummary != null} isDigest=$isDigest")
-
-        if (model.isEmpty() && provider != "gemini_nano") {
-            log("error", "AI SKIP: no model set for $provider — configure in AI Provider settings"); return null
-        }
-        if (provider == "ollama" && baseUrl.isEmpty()) {
-            log("error", "AI SKIP: no URL set for Ollama — configure in AI Provider settings"); return null
-        }
-        if (provider == "gemini" && apiKey.isEmpty()) {
-            log("error", "AI SKIP: no API key set for Gemini — configure in AI Provider settings"); return null
-        }
 
         // Build length instruction
         val lengthInstruction = when (length) {
@@ -1232,30 +1230,66 @@ Provide a clear, concise summary."""
         log("info", "Full prompt: $prompt")
         val images = notifications.mapNotNull { it.imageBase64 }
 
-        return try {
-            when (provider) {
-                "ollama"      -> callOllama(baseUrl, model, prompt, apiKey)
-                "gemini"      -> callGemini(apiKey, model, prompt, images)
-                "gemini_nano" -> callGeminiNano(prompt)
-                "claude"      -> {
-                    val url = baseUrl.ifEmpty { "https://api.anthropic.com" }
-                    callClaude(url, apiKey, model, prompt)
-                }
-                "openai"      -> {
-                    val url = baseUrl.ifEmpty { "https://api.openai.com" }
-                    callOpenAI(url, apiKey, model, prompt)
-                }
-                "openrouter"  -> {
-                    val url = baseUrl.ifEmpty { "https://openrouter.ai" }
-                    callOpenAI(url, apiKey, model, prompt)
-                }
-                "local"       -> callOpenAI(baseUrl, apiKey, model, prompt)
-                else -> { log("error", "Unknown provider: $provider"); null }
+        for ((index, provider) in providers.withIndex()) {
+            val tier = when (index) {
+                0 -> "primary"
+                1 -> "secondary"
+                else -> "tertiary"
             }
-        } catch (e: Exception) {
-            log("error", "AI exception [$provider]: ${e.javaClass.simpleName}: ${e.message}")
-            null
+            val apiKey  = spStr("api_key_$provider", "")
+            val model   = spStr("model_$provider", "")
+            val baseUrl = spStr("base_url_$provider", "")
+
+            log("info", "AI call [$tier]: provider=$provider model=${model.ifEmpty { "(none)" }} url=${baseUrl.ifEmpty { "(default)" }} hasKey=${apiKey.isNotEmpty()}")
+
+            if (model.isEmpty() && provider != "gemini_nano") {
+                log("warn", "AI SKIP [$tier]: no model set for $provider")
+                continue
+            }
+            if (provider == "ollama" && baseUrl.isEmpty()) {
+                log("warn", "AI SKIP [$tier]: no URL set for Ollama")
+                continue
+            }
+            if (provider == "gemini" && apiKey.isEmpty()) {
+                log("warn", "AI SKIP [$tier]: no API key set for Gemini")
+                continue
+            }
+
+            val result = try {
+                when (provider) {
+                    "ollama"      -> callOllama(baseUrl, model, prompt, apiKey)
+                    "gemini"      -> callGemini(apiKey, model, prompt, images)
+                    "gemini_nano" -> callGeminiNano(prompt)
+                    "claude"      -> {
+                        val url = baseUrl.ifEmpty { "https://api.anthropic.com" }
+                        callClaude(url, apiKey, model, prompt)
+                    }
+                    "openai"      -> {
+                        val url = baseUrl.ifEmpty { "https://api.openai.com" }
+                        callOpenAI(url, apiKey, model, prompt)
+                    }
+                    "openrouter"  -> {
+                        val url = baseUrl.ifEmpty { "https://openrouter.ai" }
+                        callOpenAI(url, apiKey, model, prompt)
+                    }
+                    "local"       -> callOpenAI(baseUrl, apiKey, model, prompt)
+                    else -> { log("warn", "Unknown provider: $provider"); null }
+                }
+            } catch (e: Exception) {
+                log("error", "AI exception [$tier/$provider]: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
+
+            if (result != null) {
+                log("success", "AI response OK from $tier provider $provider — ${result.length} chars")
+                return result
+            } else {
+                log("warn", "AI call failed for $tier provider $provider — trying next")
+            }
         }
+
+        log("error", "All AI providers failed for $pkg")
+        return null
     }
 
     // ── Ollama ─────────────────────────────────────────────────────────────────
