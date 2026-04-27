@@ -75,7 +75,9 @@ class MainActivity : FlutterActivity() {
 
                 "restartNotificationListener" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        requestRebind(android.content.ComponentName(this, NotificationService::class.java))
+                        NotificationListenerService.requestRebind(
+                            android.content.ComponentName(this, NotificationService::class.java)
+                        )
                     }
                     result.success(true)
                 }
