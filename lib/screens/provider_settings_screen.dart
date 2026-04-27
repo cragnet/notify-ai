@@ -18,6 +18,10 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   late String _selectedProvider;
   String _backupProvider1 = '';
   String _backupProvider2 = '';
+  final _wifiSsid1Ctrl = TextEditingController();
+  String _wifiProvider1 = '';
+  final _wifiSsid2Ctrl = TextEditingController();
+  String _wifiProvider2 = '';
   final _keyCtrl = TextEditingController();
   final _urlCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
@@ -38,6 +42,10 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
       if (providerById(_selectedProvider) == null) _selectedProvider = 'ollama';
       _backupProvider1 = s.backupProvider1;
       _backupProvider2 = s.backupProvider2;
+      _wifiSsid1Ctrl.text = s.wifiSsid1;
+      _wifiProvider1 = s.wifiProvider1;
+      _wifiSsid2Ctrl.text = s.wifiSsid2;
+      _wifiProvider2 = s.wifiProvider2;
       _keyCtrl.text = s.getApiKey(_selectedProvider);
       _urlCtrl.text = s.getBaseUrl(_selectedProvider);
       _modelCtrl.text = s.getModel(_selectedProvider);
@@ -57,6 +65,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
   @override
   void dispose() {
+    _wifiSsid1Ctrl.dispose(); _wifiSsid2Ctrl.dispose();
     _keyCtrl.dispose(); _urlCtrl.dispose(); _modelCtrl.dispose();
     super.dispose();
   }
@@ -68,6 +77,10 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     await s.setAiProvider(_selectedProvider);
     await s.setBackupProvider1(_backupProvider1);
     await s.setBackupProvider2(_backupProvider2);
+    await s.setWifiSsid1(_wifiSsid1Ctrl.text.trim());
+    await s.setWifiProvider1(_wifiProvider1);
+    await s.setWifiSsid2(_wifiSsid2Ctrl.text.trim());
+    await s.setWifiProvider2(_wifiProvider2);
     if (_keyCtrl.text.isNotEmpty) await s.setApiKey(_selectedProvider, _keyCtrl.text.trim());
     if (_urlCtrl.text.isNotEmpty) await s.setBaseUrl(_selectedProvider, _urlCtrl.text.trim());
     if (_modelCtrl.text.isNotEmpty) await s.setModel(_selectedProvider, _modelCtrl.text.trim());
@@ -142,6 +155,71 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
             const Padding(
               padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
               child: Text('Backups use the model, URL and API key already configured for each provider. If the primary fails, the app tries backup 1, then backup 2.', style: TextStyle(color: Colors.white30, fontSize: 11)),
+            ),
+            const SizedBox(height: 16),
+            _Label('WiFi-based provider 1'),
+            _Card(child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _FieldLabel('WiFi SSID'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _wifiSsid1Ctrl,
+                  decoration: const InputDecoration(hintText: 'e.g. HomeWiFi_5G'),
+                  onChanged: (_) => setState(() => _saved = false),
+                ),
+                const SizedBox(height: 4),
+                const Text('Exact network name — case sensitive', style: TextStyle(color: Colors.white30, fontSize: 11)),
+                const SizedBox(height: 16),
+                _FieldLabel('Provider to use on this WiFi'),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: _wifiProvider1.isEmpty ? null : _wifiProvider1,
+                  isExpanded: true,
+                  decoration: const InputDecoration(hintText: 'None (disabled)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('None (disabled)', style: TextStyle(color: Colors.white38))),
+                    ...kProviders.map((p) => DropdownMenuItem(value: p.id, child: Text(p.displayName, style: const TextStyle(color: Colors.white70)))),
+                  ],
+                  onChanged: (v) { setState(() { _wifiProvider1 = v ?? ''; _saved = false; }); },
+                  dropdownColor: const Color(0xFF2A2A2A),
+                ),
+              ]),
+            )),
+            const SizedBox(height: 8),
+            _Label('WiFi-based provider 2'),
+            _Card(child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _FieldLabel('WiFi SSID'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _wifiSsid2Ctrl,
+                  decoration: const InputDecoration(hintText: 'e.g. Office_Guest'),
+                  onChanged: (_) => setState(() => _saved = false),
+                ),
+                const SizedBox(height: 4),
+                const Text('Exact network name — case sensitive', style: TextStyle(color: Colors.white30, fontSize: 11)),
+                const SizedBox(height: 16),
+                _FieldLabel('Provider to use on this WiFi'),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: _wifiProvider2.isEmpty ? null : _wifiProvider2,
+                  isExpanded: true,
+                  decoration: const InputDecoration(hintText: 'None (disabled)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('None (disabled)', style: TextStyle(color: Colors.white38))),
+                    ...kProviders.map((p) => DropdownMenuItem(value: p.id, child: Text(p.displayName, style: const TextStyle(color: Colors.white70)))),
+                  ],
+                  onChanged: (v) { setState(() { _wifiProvider2 = v ?? ''; _saved = false; }); },
+                  dropdownColor: const Color(0xFF2A2A2A),
+                ),
+              ]),
+            )),
+            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+              child: Text('When connected to a matching WiFi network, that provider is used instead of the primary. Location permission may be required on Android 10+ to read the SSID.', style: TextStyle(color: Colors.white30, fontSize: 11)),
             ),
             const SizedBox(height: 16),
             _Label('Configuration'),

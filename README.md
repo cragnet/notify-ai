@@ -12,6 +12,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
 - **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via ML Kit), Ollama (self-hosted)
 - **Automatic Fallback:** Configure primary, secondary, and tertiary AI providers — if one fails, the next is tried automatically
+- **WiFi-Based Provider Switching:** Automatically switch AI provider based on the WiFi network you're connected to — perfect for using a local Ollama server at home
 - **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
 - **Click to Open:** Tap any summary notification to jump directly to the originating app
 - **App Icons & Colors:** Summary notifications show the app's icon and original notification color
@@ -48,6 +49,7 @@ Set up to three tiers of AI providers (primary, secondary, tertiary). If the pri
    - Open Settings → AI Provider
    - Select primary provider, enter API key, model name
    - Optionally set Backup provider 1 and Backup provider 2 for automatic fallback
+   - Optionally set WiFi-based providers to automatically switch when connected to specific networks (e.g., use local Ollama at home)
    - For Ollama Cloud: use OpenAI Compatible with `https://ollama.com/v1`
 4. **Select Apps:** Per-app settings → choose apps to monitor
 5. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
@@ -84,6 +86,15 @@ Go to Settings → Custom AI Prompt. Variables available:
 - `{length_instruction}` — Full length instruction for the AI
 - `{hint}` — Concise hint (e.g., "in one very brief sentence")
 
+### WiFi-Based Provider Switching
+Go to Settings → AI Provider → WiFi-based provider 1 / 2. Configure:
+- **WiFi SSID:** Exact network name (case-sensitive)
+- **Provider to use:** The AI provider that will be used when connected to this network
+
+When connected to a matching WiFi, that provider becomes the effective primary — the normal primary and backups are still used as fallbacks if the WiFi provider fails. This is ideal for using a local Ollama server at home while using cloud providers elsewhere.
+
+**Note:** On Android 10+, reading the WiFi SSID requires location permission. If the SSID cannot be read, the app falls back to the normal primary provider.
+
 ### File Persistence
 Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-DD.json` for backup purposes.
 
@@ -108,6 +119,11 @@ Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-D
 **Source notifications still visible after summary:**
 - Ensure "Dismiss original notifications" is enabled in Settings
 - Some apps (e.g. Teams, WhatsApp) aggressively re-post — this is app behaviour, not a bug
+
+**WiFi provider not switching:**
+- On Android 10+, grant location permission so the app can read the WiFi SSID
+- Ensure the SSID is entered exactly (case-sensitive, no extra spaces)
+- Some networks broadcast a hidden SSID — WiFi switching may not work on these
 
 **Battery optimisation:** Some manufacturers (Samsung, Xiaomi) reset this on reboot — re-grant permission.
 

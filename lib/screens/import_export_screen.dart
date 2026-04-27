@@ -32,6 +32,10 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
           'ai_provider': settings.aiProvider,
           'backup_provider_1': settings.backupProvider1,
           'backup_provider_2': settings.backupProvider2,
+          'wifi_ssid_1': settings.wifiSsid1,
+          'wifi_provider_1': settings.wifiProvider1,
+          'wifi_ssid_2': settings.wifiSsid2,
+          'wifi_provider_2': settings.wifiProvider2,
           'summary_length': settings.summaryLength,
           'notification_threshold': settings.notificationThreshold,
           'dismiss_on_app_usage': settings.dismissOnAppUsage,
@@ -135,6 +139,10 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       if (s['ai_provider'] != null) await settings.setAiProvider(s['ai_provider']);
       if (s['backup_provider_1'] != null) await settings.setBackupProvider1(s['backup_provider_1']);
       if (s['backup_provider_2'] != null) await settings.setBackupProvider2(s['backup_provider_2']);
+      if (s['wifi_ssid_1'] != null) await settings.setWifiSsid1(s['wifi_ssid_1']);
+      if (s['wifi_provider_1'] != null) await settings.setWifiProvider1(s['wifi_provider_1']);
+      if (s['wifi_ssid_2'] != null) await settings.setWifiSsid2(s['wifi_ssid_2']);
+      if (s['wifi_provider_2'] != null) await settings.setWifiProvider2(s['wifi_provider_2']);
       if (s['summary_length'] != null) await settings.setSummaryLength(s['summary_length']);
       if (s['notification_threshold'] != null) await settings.setNotificationThreshold(s['notification_threshold']);
       if (s['dismiss_on_app_usage'] != null) await settings.setDismissOnAppUsage(s['dismiss_on_app_usage']);

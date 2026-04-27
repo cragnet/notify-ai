@@ -16,6 +16,13 @@ class SettingsProvider extends ChangeNotifier {
   String aiProvider = 'ollama';
   String backupProvider1 = '';
   String backupProvider2 = '';
+
+  // WiFi-based provider switching
+  String wifiSsid1 = '';
+  String wifiProvider1 = '';
+  String wifiSsid2 = '';
+  String wifiProvider2 = '';
+
   Map<String, String> providerModels = {};
   Map<String, String> providerBaseUrls = {};
   Map<String, String> apiKeys = {};
@@ -69,6 +76,10 @@ Be brief but informative.''';
     aiProvider = _prefs.getString('ai_provider') ?? 'ollama';
     backupProvider1 = _prefs.getString('backup_provider_1') ?? '';
     backupProvider2 = _prefs.getString('backup_provider_2') ?? '';
+    wifiSsid1 = _prefs.getString('wifi_ssid_1') ?? '';
+    wifiProvider1 = _prefs.getString('wifi_provider_1') ?? '';
+    wifiSsid2 = _prefs.getString('wifi_ssid_2') ?? '';
+    wifiProvider2 = _prefs.getString('wifi_provider_2') ?? '';
     summaryLength = _prefs.getInt('summary_length') ?? 2;
     notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
@@ -135,6 +146,30 @@ Be brief but informative.''';
   Future<void> setBackupProvider2(String provider) async {
     backupProvider2 = provider;
     await _prefs.setString('backup_provider_2', provider);
+    notifyListeners();
+  }
+
+  Future<void> setWifiSsid1(String ssid) async {
+    wifiSsid1 = ssid;
+    await _prefs.setString('wifi_ssid_1', ssid);
+    notifyListeners();
+  }
+
+  Future<void> setWifiProvider1(String provider) async {
+    wifiProvider1 = provider;
+    await _prefs.setString('wifi_provider_1', provider);
+    notifyListeners();
+  }
+
+  Future<void> setWifiSsid2(String ssid) async {
+    wifiSsid2 = ssid;
+    await _prefs.setString('wifi_ssid_2', ssid);
+    notifyListeners();
+  }
+
+  Future<void> setWifiProvider2(String provider) async {
+    wifiProvider2 = provider;
+    await _prefs.setString('wifi_provider_2', provider);
     notifyListeners();
   }
 

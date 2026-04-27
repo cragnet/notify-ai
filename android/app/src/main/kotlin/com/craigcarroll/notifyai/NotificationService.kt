@@ -1070,8 +1070,28 @@ class NotificationService : NotificationListenerService() {
 
         // Build ordered provider list with deduplication
         val providers = mutableListOf<String>()
+
+        // WiFi-based provider switching: if connected to a known SSID, use its provider first
+        val currentSsid = getCurrentWifiSsid()
+        if (currentSsid != null) {
+            val wifiSsid1 = spStr("wifi_ssid_1", "")
+            val wifiProvider1 = spStr("wifi_provider_1", "")
+            val wifiSsid2 = spStr("wifi_ssid_2", "")
+            val wifiProvider2 = spStr("wifi_provider_2", "")
+            when {
+                wifiSsid1.isNotEmpty() && wifiProvider1.isNotEmpty() && currentSsid == wifiSsid1 -> {
+                    log("info", "WiFi match: using provider '$wifiProvider1' for SSID '$currentSsid'")
+                    providers.add(wifiProvider1)
+                }
+                wifiSsid2.isNotEmpty() && wifiProvider2.isNotEmpty() && currentSsid == wifiSsid2 -> {
+                    log("info", "WiFi match: using provider '$wifiProvider2' for SSID '$currentSsid'")
+                    providers.add(wifiProvider2)
+                }
+            }
+        }
+
         val primary = spStr("ai_provider", "ollama")
-        if (primary.isNotEmpty()) providers.add(primary)
+        if (primary.isNotEmpty() && !providers.contains(primary)) providers.add(primary)
         val backup1 = spStr("backup_provider_1", "")
         if (backup1.isNotEmpty() && !providers.contains(backup1)) providers.add(backup1)
         val backup2 = spStr("backup_provider_2", "")
@@ -2134,6 +2154,22 @@ Provide a clear, concise summary."""
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private fun getCurrentWifiSsid(): String? {
+        return try {
+            val wifiManager = getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            val info = wifiManager.connectionInfo
+            val ssid = info.ssid?.replace("\"", "")?.trim()
+            if (ssid != null && ssid.isNotEmpty() && ssid != "<unknown ssid>" && ssid != "0x") {
+                ssid
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            log("warn", "Could not read WiFi SSID: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+    }
 
     private fun appName(pkg: String) = try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
