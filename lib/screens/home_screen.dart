@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/provider_config.dart';
+import '../services/permissions_service.dart';
 import 'provider_settings_screen.dart';
 import 'app_selector_screen.dart';
 import 'import_export_screen.dart';
@@ -78,6 +79,29 @@ class HomeScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right, color: Colors.white38),
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ProviderSettingsScreen())),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Card(
+          child: ListTile(
+            leading: const Icon(Icons.notifications_active, color: Color(0xFF6B9E78)),
+            title: const Text('Restart notification listener'),
+            subtitle: const Text(
+              'Tap if summaries stop appearing after force-stop or battery optimisation',
+              style: TextStyle(color: Colors.white38, fontSize: 13),
+            ),
+            trailing: const Icon(Icons.refresh, color: Colors.white38),
+            onTap: () async {
+              final ok = await PermissionsService.restartNotificationListener();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(ok
+                      ? 'Notification listener restarted'
+                      : 'Could not restart listener — toggle it manually in system settings'),
+                  backgroundColor: ok ? const Color(0xFF6B9E78) : Colors.redAccent,
+                ));
+              }
+            },
           ),
         ),
         const SizedBox(height: 8),

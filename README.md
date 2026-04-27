@@ -9,6 +9,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Per-App Digest Filtering:** Include all, only selected, or exclude specific apps from digest summaries
 - **Separate Digest Prompt:** Custom AI prompt specifically optimised for periodic, multi-app rollups
 - **Auto-Retry & Offline Queue:** Failed AI calls are automatically retried with exponential backoff when connectivity returns
+- **In-App Service Restart:** Restart the notification listener directly from the app when it stalls or after force-stop
 - **Custom AI Prompts:** Personalise how the AI summarises your notifications
 - **Multiple AI Providers:** OpenAI, Google Gemini, Claude, OpenRouter, Gemini Nano (on-device via ML Kit), Ollama (self-hosted)
 - **Automatic Fallback:** Configure primary, secondary, and tertiary AI providers — if one fails, the next is tried automatically
@@ -106,6 +107,8 @@ Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-D
 - **WhatsApp buffer stall fixed:** Updates now correctly schedule a new runnable when the previous one expired
 - **Stale summary cancellation:** Summary is auto-cancelled when every original notification that produced it is dismissed
 - **Dynamic commit hash:** About screen shows the actual build commit instead of a hardcoded value
+- **Retry queue no longer blocks:** Retry processing moved to a background thread so slow AI calls cannot stall new notifications
+- **In-app service restart:** Home screen now has a "Restart notification listener" button to recover from force-stop without system settings
 
 ## Troubleshooting
 
@@ -124,6 +127,11 @@ Stats are written to `/data/data/com.craigcarroll.notifyai/files/stats/YYYY-MM-D
 - On Android 10+, grant location permission so the app can read the WiFi SSID
 - Ensure the SSID is entered exactly (case-sensitive, no extra spaces)
 - Some networks broadcast a hidden SSID — WiFi switching may not work on these
+
+**Service stalled / no new summaries after force-stop:**
+- Tap **Restart notification listener** on the home screen — this rebinds the service without visiting system settings
+- If that fails, clear app data and re-enable notification access in system settings
+- Honor/Xiaomi/Samsung devices are especially aggressive about killing background services
 
 **Battery optimisation:** Some manufacturers (Samsung, Xiaomi) reset this on reboot — re-grant permission.
 

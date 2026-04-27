@@ -2104,44 +2104,48 @@ Provide a clear, concise summary."""
     }
 
     fun processRetryQueue() {
-        try {
-            if (!isNetworkAvailable()) {
-                log("info", "Retry queue: no network — skipping")
-                return
-            }
-            val sp = sp()
-            val key = "flutter.retry_queue"
-            val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
-            if (arr.length() == 0) return
-            log("info", "Processing retry queue — ${arr.length()} item(s)")
-            val remaining = JSONArray()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val pkg = obj.getString("package")
-                val itemsJson = obj.getJSONArray("items")
-                val attempts = obj.getInt("attempts") + 1
-                val items = (0 until itemsJson.length()).map { idx ->
-                    NotificationItem.fromJson(itemsJson.getJSONObject(idx))
+        // Run retries on background executor so slow/failing AI calls
+        // never block the main thread and stall new notifications.
+        executor.execute {
+            try {
+                if (!isNetworkAvailable()) {
+                    log("info", "Retry queue: no network — skipping")
+                    return@execute
                 }
-                val summary = callAI(pkg, items)
-                if (summary != null && summary.isNotBlank() && !isNoChangeResponse(summary)) {
-                    val actions = items.flatMap { it.actions }
-                    val appIcon = getAppIcon(pkg)
-                    val color = getNotificationColor(pkg)
-                    postSummary(pkg, summary, actions, items.size, appIcon, color)
-                    recordStat(pkg, intercepted = false, summarised = true)
-                    log("success", "Retry succeeded for $pkg (attempt $attempts)")
-                } else if (attempts < 3) {
-                    obj.put("attempts", attempts)
-                    remaining.put(obj)
-                    log("warn", "Retry failed for $pkg — attempt $attempts/3, requeued")
-                } else {
-                    log("warn", "Retry dropped for $pkg after $attempts attempts")
+                val sp = sp()
+                val key = "flutter.retry_queue"
+                val arr = try { JSONArray(sp.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
+                if (arr.length() == 0) return@execute
+                log("info", "Processing retry queue — ${arr.length()} item(s)")
+                val remaining = JSONArray()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val pkg = obj.getString("package")
+                    val itemsJson = obj.getJSONArray("items")
+                    val attempts = obj.getInt("attempts") + 1
+                    val items = (0 until itemsJson.length()).map { idx ->
+                        NotificationItem.fromJson(itemsJson.getJSONObject(idx))
+                    }
+                    val summary = callAI(pkg, items)
+                    if (summary != null && summary.isNotBlank() && !isNoChangeResponse(summary)) {
+                        val actions = items.flatMap { it.actions }
+                        val appIcon = getAppIcon(pkg)
+                        val color = getNotificationColor(pkg)
+                        postSummary(pkg, summary, actions, items.size, appIcon, color)
+                        recordStat(pkg, intercepted = false, summarised = true)
+                        log("success", "Retry succeeded for $pkg (attempt $attempts)")
+                    } else if (attempts < 3) {
+                        obj.put("attempts", attempts)
+                        remaining.put(obj)
+                        log("warn", "Retry failed for $pkg — attempt $attempts/3, requeued")
+                    } else {
+                        log("warn", "Retry dropped for $pkg after $attempts attempts")
+                    }
                 }
+                sp.edit().putString(key, remaining.toString()).apply()
+            } catch (e: Exception) {
+                log("error", "processRetryQueue crash: ${e.javaClass.simpleName}: ${e.message}")
             }
-            sp.edit().putString(key, remaining.toString()).apply()
-        } catch (e: Exception) {
-            log("error", "processRetryQueue crash: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 

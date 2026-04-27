@@ -73,6 +73,13 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "restartNotificationListener" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        requestRebind(android.content.ComponentName(this, NotificationService::class.java))
+                    }
+                    result.success(true)
+                }
+
                 "sendTestNotification" -> {
                     val count = call.argument<Int>("count") ?: 1
                     val appPackage = call.argument<String>("packageName") ?: "com.test.app"
