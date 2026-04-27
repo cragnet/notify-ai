@@ -3,6 +3,7 @@ package com.craigcarroll.notifyai
 import android.app.AppOpsManager
 import android.app.NotificationManager
 import android.content.Context
+import android.service.notification.NotificationListenerService
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
