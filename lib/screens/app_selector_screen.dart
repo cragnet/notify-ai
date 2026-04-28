@@ -53,6 +53,25 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
     }
   }
 
+  void _showThresholdPicker(BuildContext context, SettingsProvider settings, String packageName, String appName) {
+    final globalThreshold = settings.notificationThreshold;
+    final customThreshold = settings.getAppThreshold(packageName);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return _ThresholdPickerDialog(
+          appName: appName,
+          globalThreshold: globalThreshold,
+          customThreshold: customThreshold,
+          onSave: (value) {
+            settings.setAppThreshold(packageName, value);
+          },
+        );
+      },
+    );
+  }
+
   void _showColorPicker(BuildContext context, SettingsProvider settings, String packageName, String appName) {
     final currentColor = settings.getNotificationColor(packageName);
 
@@ -344,6 +363,19 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                                           ],
                                         ),
                                       ),
+                                      // Threshold picker button (only for selected apps)
+                                      if (isSelected)
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.filter_list,
+                                            color: settings.getAppThreshold(pkg) != null
+                                                ? const Color(0xFF6B9E78)
+                                                : Colors.white38,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Set threshold',
+                                          onPressed: () => _showThresholdPicker(context, settings, pkg, name),
+                                        ),
                                       // Color picker button (only for selected apps)
                                       if (isSelected)
                                         IconButton(
@@ -420,6 +452,126 @@ class _ColorOption extends StatelessWidget {
               style: const TextStyle(fontSize: 10, color: Colors.white54),
             ),
           ),
+      ],
+    );
+  }
+}
+
+class _ThresholdPickerDialog extends StatefulWidget {
+  final String appName;
+  final int globalThreshold;
+  final int? customThreshold;
+  final void Function(int?) onSave;
+
+  const _ThresholdPickerDialog({
+    required this.appName,
+    required this.globalThreshold,
+    required this.customThreshold,
+    required this.onSave,
+  });
+
+  @override
+  State<_ThresholdPickerDialog> createState() => _ThresholdPickerDialogState();
+}
+
+class _ThresholdPickerDialogState extends State<_ThresholdPickerDialog> {
+  late bool _useCustom;
+  late double _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _useCustom = widget.customThreshold != null;
+    _value = (widget.customThreshold ?? widget.globalThreshold).toDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Threshold for ${widget.appName}'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Use custom threshold'),
+              subtitle: Text(
+                _useCustom
+                    ? 'Override global setting for this app'
+                    : 'Use global threshold (${widget.globalThreshold})',
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              value: _useCustom,
+              onChanged: (v) => setState(() => _useCustom = v),
+            ),
+            const SizedBox(height: 8),
+            if (_useCustom) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Summarise after ${_value.round()} notification${_value.round() == 1 ? '' : 's'}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF6B9E78),
+                  inactiveTrackColor: const Color(0xFF3A3A3A),
+                  thumbColor: const Color(0xFF6B9E78),
+                  overlayColor: const Color(0xFF6B9E78).withOpacity(0.2),
+                  trackHeight: 3,
+                ),
+                child: Slider(
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  value: _value,
+                  onChanged: (v) => setState(() => _value = v),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('1', style: const TextStyle(color: Colors.white30, fontSize: 11)),
+                  Text('10', style: const TextStyle(color: Colors.white30, fontSize: 11)),
+                ],
+              ),
+            ] else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Global: ${widget.globalThreshold} notification${widget.globalThreshold == 1 ? '' : 's'}',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            widget.onSave(_useCustom ? _value.round() : null);
+            Navigator.pop(context);
+          },
+          child: const Text('Save'),
+        ),
       ],
     );
   }

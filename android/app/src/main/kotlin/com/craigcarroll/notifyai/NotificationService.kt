@@ -247,6 +247,16 @@ class NotificationService : NotificationListenerService() {
     private fun spStr(key: String, def: String): String =
         sp().getString("flutter.$key", def) ?: def
 
+    // Per-app threshold override. Falls back to global notification_threshold.
+    private fun getThresholdForApp(pkg: String): Int {
+        val global = spInt("notification_threshold", 2)
+        val raw = spStr("app_thresholds", "{}")
+        return try {
+            val obj = JSONObject(raw)
+            if (obj.has(pkg)) obj.getInt(pkg) else global
+        } catch (_: Exception) { global }
+    }
+
     // Flutter encodes StringList as LIST_IDENTIFIER + jsonArray (no separator)
     // LIST_IDENTIFIER = base64("This is the prefix for a string list")
     private fun spList(key: String): List<String> {
@@ -533,7 +543,7 @@ class NotificationService : NotificationListenerService() {
         log("info", "[TEST] Added test notification to conversation '$conversationId' for $name")
 
         // Check threshold and trigger
-        val threshold = spInt("notification_threshold", 2)
+        val threshold = getThresholdForApp(pkg)
         val convCount = group.getConversationCount(conversationId)
         val totalCount = group.getAllPendingNotifications().size
 
@@ -542,7 +552,7 @@ class NotificationService : NotificationListenerService() {
         // Create runnable to process this app's notifications
         val runnable = Runnable {
             val currentGroup = buffer[pkg] ?: return@Runnable
-            val currentThreshold = spInt("notification_threshold", 2)
+            val currentThreshold = getThresholdForApp(pkg)
             val allNotifications = currentGroup.getAllPendingNotifications()
             val currentTotal = allNotifications.size
 
@@ -725,7 +735,7 @@ class NotificationService : NotificationListenerService() {
             }
         }
 
-        val threshold = spInt("notification_threshold", 2)
+        val threshold = getThresholdForApp(pkg)
         val convCount = group.getConversationCount(conversationId)
         val totalCount = group.getAllPendingNotifications().size
         log("info", "CAPTURED conv=$convCount/total=$totalCount from $name: title='$title' text='${text.take(80)}' threshold=$threshold conversation=$conversationId")
@@ -762,7 +772,7 @@ class NotificationService : NotificationListenerService() {
 
         val runnable = Runnable {
             val currentGroup = buffer[pkg] ?: return@Runnable
-            val threshold = spInt("notification_threshold", 2)
+            val threshold = getThresholdForApp(pkg)
 
             // Get all pending notifications for this app
             val allNotifications = currentGroup.getAllPendingNotifications()

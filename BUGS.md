@@ -1,5 +1,9 @@
 # Known Issues & Bug Tracker
 
+## Version 2.0.7
+
+No new known issues.
+
 ## Version 2.0.6
 
 No new known issues.
@@ -53,8 +57,9 @@ No new known issues.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | BuzzKill notifications | ✅ Working | ClassCastException fix verified |
-| WhatsApp notifications | ✅ Working | Threshold and batching functional |
+| WhatsApp notifications | ✅ Working | Per-app threshold allows setting WhatsApp to 1 for single-chat summaries |
 | Custom AI prompts | ✅ Working | Full feature with {length} variables |
+| Per-app thresholds | ✅ Working | Override global threshold per app in Per-app settings |
 | Stats file persistence | ✅ Working | Daily JSON files to app storage |
 | OpenAI provider | ✅ Working | Restored to provider list |
 | GitHub Actions build | ✅ Working | Cloud builds functional |

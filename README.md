@@ -17,7 +17,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 - **Original Actions Preserved:** Reply, Mark as read, and other actions carried to summary notification
 - **Click to Open:** Tap any summary notification to jump directly to the originating app
 - **App Icons & Colors:** Summary notifications show the app's icon and original notification color
-- **Per-App Settings:** Choose which apps to monitor and individual thresholds
+- **Per-App Settings:** Choose which apps to monitor, set custom notification thresholds per app, and pick individual notification colours
 - **Stats & History:** Track intercepted vs summarised notifications with daily/weekly/monthly charts
 - **Theme Support:** Dark, Light, or System-default theme
 - **File Persistence:** Stats written to local storage for backup
@@ -53,7 +53,8 @@ Set up to three tiers of AI providers (primary, secondary, tertiary). If the pri
    - Optionally set WiFi-based providers to automatically switch when connected to specific networks (e.g., use local Ollama at home)
    - For Ollama Cloud: use OpenAI Compatible with `https://ollama.com/v1`
 4. **Select Apps:** Per-app settings → choose apps to monitor
-5. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
+5. **Set Thresholds (optional):** In Per-app settings, tap the filter icon next to any selected app to set a custom threshold. Useful for chat apps like WhatsApp that group messages into a single notification — set threshold to 1 so every message is summarised immediately
+6. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
 
 ## Building
 

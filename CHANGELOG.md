@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.7] - 2026-04-28
+
+### Added
+
+- **Per-app notification thresholds** — override the global "Summarise after" threshold for individual apps directly in Per-app settings. Defaults to the global value unless customised. Ideal for WhatsApp and other messaging apps that group multiple messages into a single notification.
+
 ## [2.0.6] - 2026-04-23
 
 ### Fixed

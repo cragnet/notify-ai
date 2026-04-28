@@ -62,6 +62,7 @@ Provide a well-structured digest. Highlight time-sensitive items and anything re
 
   Set<String> enabledApps = {};
   Map<String, int?> notificationColors = {}; // packageName -> color value
+  Map<String, int> appThresholds = {}; // packageName -> custom threshold (null means use global)
 
   // Default prompt template
   static const String defaultPrompt = '''Summarize the following notifications concisely.
@@ -105,6 +106,16 @@ Be brief but informative.''';
         final colorsMap = jsonDecode(colorsJson) as Map<String, dynamic>;
         notificationColors = colorsMap.map((key, value) =>
           MapEntry(key, value != null ? value as int : null));
+      } catch (_) {}
+    }
+
+    // Load per-app thresholds
+    final thresholdsJson = _prefs.getString('app_thresholds');
+    if (thresholdsJson != null) {
+      try {
+        final thresholdsMap = jsonDecode(thresholdsJson) as Map<String, dynamic>;
+        appThresholds = thresholdsMap.map((key, value) =>
+          MapEntry(key, value as int));
       } catch (_) {}
     }
 
@@ -385,6 +396,25 @@ Be brief but informative.''';
     // ignore: avoid_print
     print('NotifyAI: saved enabled_apps_set: $list');
     notifyListeners();
+  }
+
+  // Per-app threshold methods
+  int? getAppThreshold(String packageName) {
+    return appThresholds[packageName];
+  }
+
+  Future<void> setAppThreshold(String packageName, int? threshold) async {
+    if (threshold == null) {
+      appThresholds.remove(packageName);
+    } else {
+      appThresholds[packageName] = threshold;
+    }
+    await _saveAppThresholds();
+    notifyListeners();
+  }
+
+  Future<void> _saveAppThresholds() async {
+    await _prefs.setString('app_thresholds', jsonEncode(appThresholds));
   }
 
   // Notification color methods
