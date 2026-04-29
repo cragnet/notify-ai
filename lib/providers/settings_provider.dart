@@ -29,6 +29,7 @@ class SettingsProvider extends ChangeNotifier {
 
   int summaryLength = 2;
   int notificationThreshold = 2;
+  int summaryCooldownMs = 30000;
   bool dismissOnAppUsage = true;
   bool retainOriginalActions = true;
   String customPrompt = '';
@@ -83,6 +84,7 @@ Be brief but informative.''';
     wifiProvider2 = _prefs.getString('wifi_provider_2') ?? '';
     summaryLength = _prefs.getInt('summary_length') ?? 2;
     notificationThreshold = _prefs.getInt('notification_threshold') ?? 2;
+    summaryCooldownMs = _prefs.getInt('summary_cooldown_ms') ?? 30000;
     dismissOnAppUsage = _prefs.getBool('dismiss_on_app_usage') ?? true;
     retainOriginalActions = _prefs.getBool('retain_original_actions') ?? true;
     customPrompt = _prefs.getString('custom_prompt') ?? defaultPrompt;
@@ -241,6 +243,12 @@ Be brief but informative.''';
   Future<void> setNotificationThreshold(int v) async {
     notificationThreshold = v;
     await _prefs.setInt('notification_threshold', v);
+    notifyListeners();
+  }
+
+  Future<void> setSummaryCooldownMs(int v) async {
+    summaryCooldownMs = v;
+    await _prefs.setInt('summary_cooldown_ms', v);
     notifyListeners();
   }
 

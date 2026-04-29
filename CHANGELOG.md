@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.8] - 2026-04-29
+
+### Added
+
+- **Summary cooldown** — prevents rapid-fire summaries when threshold is set to 1. After a summary is posted for an app, new summaries for the same app are deferred for a configurable cooldown period (default 30s, adjustable 0–120s in Settings). Notifications that arrive during the cooldown accumulate in the buffer and are batched into a single summary when the cooldown expires. This fixes the issue where WhatsApp (and similar apps) produced multiple AI summaries within seconds for the same conversation.
+
 ## [2.0.7] - 2026-04-28
 
 ### Added

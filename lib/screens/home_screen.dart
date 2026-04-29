@@ -227,6 +227,23 @@ class HomeScreen extends StatelessWidget {
                 maxLabel: '10',
               ),
               const Divider(color: Colors.white10, height: 1),
+              // Cooldown slider
+              _SliderTile(
+                icon: Icons.timer,
+                title: 'Summary cooldown',
+                subtitle: settings.summaryCooldownMs == 0
+                    ? 'No cooldown — rapid-fire summaries allowed'
+                    : 'Wait ${settings.summaryCooldownMs ~/ 1000}s before re-summarising the same app',
+                valueLabel: settings.summaryCooldownMs == 0
+                    ? 'Off'
+                    : '${settings.summaryCooldownMs ~/ 1000}s',
+                min: 0, max: 120000, divisions: 8,
+                value: settings.summaryCooldownMs.toDouble(),
+                onChanged: (v) => settings.setSummaryCooldownMs(v.round()),
+                minLabel: 'Off',
+                maxLabel: '120s',
+              ),
+              const Divider(color: Colors.white10, height: 1),
               SwitchListTile(
                 secondary: const Icon(Icons.clear_all, color: Colors.white54),
                 title: const Text('Dismiss original notifications'),

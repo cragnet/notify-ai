@@ -223,6 +223,11 @@ class NotificationService : NotificationListenerService() {
     private val DEBOUNCE_MS = 3000L
     private val STATUS_NOTIF_ID = "notifyai_status".hashCode()
 
+    // Cooldown to prevent rapid-fire summaries when threshold=1.
+    // After posting a summary for a package, block re-summarising the same
+    // package for this duration so burst notifications accumulate into one summary.
+    private val lastSummaryTime = mutableMapOf<String, Long>()
+
     // ── SharedPreferences ──────────────────────────────────────────────────────
     private fun sp() = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
@@ -255,6 +260,11 @@ class NotificationService : NotificationListenerService() {
             val obj = JSONObject(raw)
             if (obj.has(pkg)) obj.getInt(pkg) else global
         } catch (_: Exception) { global }
+    }
+
+    // Cooldown between summaries for the same package (default 30s).
+    private fun getSummaryCooldownMs(): Long {
+        return spInt("summary_cooldown_ms", 30000).toLong()
     }
 
     // Flutter encodes StringList as LIST_IDENTIFIER + jsonArray (no separator)
@@ -792,6 +802,21 @@ class NotificationService : NotificationListenerService() {
                 return@Runnable
             }
 
+            // Cooldown check: after a summary is posted for this package, wait
+            // before allowing another summary so burst notifications accumulate.
+            val cooldownMs = getSummaryCooldownMs()
+            if (cooldownMs > 0) {
+                val lastSummary = lastSummaryTime[pkg] ?: 0L
+                val elapsed = System.currentTimeMillis() - lastSummary
+                if (elapsed < cooldownMs) {
+                    val remaining = cooldownMs - elapsed
+                    log("info", "Cooldown active for $name — ${remaining}ms remaining, deferring summary")
+                    debounce[pkg] = runnable
+                    handler.postDelayed(runnable, remaining)
+                    return@Runnable
+                }
+            }
+
             debounce.remove(pkg)
             debounceShortDelay.remove(pkg)
 
@@ -871,6 +896,7 @@ class NotificationService : NotificationListenerService() {
                         postSummary(pkg, summary, allActions, totalCount, appIcon, notificationColor, notifId)
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+                        lastSummaryTime[pkg] = System.currentTimeMillis()
 
                         // Clear dismissal tracking so retryDismiss / dismissRemainingActive
                         // (scheduled 600ms later) don't cancel the summary we just posted.

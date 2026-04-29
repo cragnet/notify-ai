@@ -5,6 +5,7 @@ AI-powered notification summariser for Android. Capture notifications from selec
 ## Features
 
 - **Smart Batching:** Groups notifications from the same app, triggers summary when threshold reached
+- **Summary Cooldown:** Prevents rapid-fire summaries when threshold is set to 1. Buffers burst notifications and summarises them together after a configurable cooldown (default 30s)
 - **Scheduled Digest Summaries:** Flush and summarise at fixed times, recurring intervals, daily, or weekly schedules — regardless of threshold
 - **Per-App Digest Filtering:** Include all, only selected, or exclude specific apps from digest summaries
 - **Separate Digest Prompt:** Custom AI prompt specifically optimised for periodic, multi-app rollups
@@ -54,7 +55,8 @@ Set up to three tiers of AI providers (primary, secondary, tertiary). If the pri
    - For Ollama Cloud: use OpenAI Compatible with `https://ollama.com/v1`
 4. **Select Apps:** Per-app settings → choose apps to monitor
 5. **Set Thresholds (optional):** In Per-app settings, tap the filter icon next to any selected app to set a custom threshold. Useful for chat apps like WhatsApp that group messages into a single notification — set threshold to 1 so every message is summarised immediately
-6. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
+6. **Set Cooldown (optional):** Settings → Summary cooldown controls how long to wait before re-summarising the same app. When threshold=1, a cooldown of 30s prevents WhatsApp and similar apps from producing multiple summaries in seconds for the same conversation. Increase to 60–120s if you still see duplicates
+7. **Custom Prompt (optional):** Settings → Custom AI Prompt to personalise summaries
 
 ## Building
 
