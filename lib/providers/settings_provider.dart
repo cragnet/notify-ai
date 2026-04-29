@@ -34,6 +34,8 @@ class SettingsProvider extends ChangeNotifier {
   bool retainOriginalActions = true;
   String customPrompt = '';
 
+  Map<String, int> appCooldowns = {}; // packageName -> custom cooldown in ms (0 = use global)
+
   // Theme: 0 = dark, 1 = light, 2 = system
   int themeMode = 0;
 
@@ -117,6 +119,16 @@ Be brief but informative.''';
       try {
         final thresholdsMap = jsonDecode(thresholdsJson) as Map<String, dynamic>;
         appThresholds = thresholdsMap.map((key, value) =>
+          MapEntry(key, value as int));
+      } catch (_) {}
+    }
+
+    // Load per-app cooldowns
+    final cooldownsJson = _prefs.getString('app_cooldowns');
+    if (cooldownsJson != null) {
+      try {
+        final cooldownsMap = jsonDecode(cooldownsJson) as Map<String, dynamic>;
+        appCooldowns = cooldownsMap.map((key, value) =>
           MapEntry(key, value as int));
       } catch (_) {}
     }
@@ -423,6 +435,25 @@ Be brief but informative.''';
 
   Future<void> _saveAppThresholds() async {
     await _prefs.setString('app_thresholds', jsonEncode(appThresholds));
+  }
+
+  // Per-app cooldown methods
+  int getAppCooldown(String packageName) {
+    return appCooldowns[packageName] ?? 0;
+  }
+
+  Future<void> setAppCooldown(String packageName, int cooldownMs) async {
+    if (cooldownMs <= 0) {
+      appCooldowns.remove(packageName);
+    } else {
+      appCooldowns[packageName] = cooldownMs;
+    }
+    await _saveAppCooldowns();
+    notifyListeners();
+  }
+
+  Future<void> _saveAppCooldowns() async {
+    await _prefs.setString('app_cooldowns', jsonEncode(appCooldowns));
   }
 
   // Notification color methods

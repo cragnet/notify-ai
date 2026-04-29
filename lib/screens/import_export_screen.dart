@@ -47,6 +47,8 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         'provider_base_urls': settings.providerBaseUrls,
         'notification_colors': settings.notificationColors.map((key, value) =>
           MapEntry(key, value)),
+        'app_thresholds': settings.appThresholds,
+        'app_cooldowns': settings.appCooldowns,
         'enabled_apps': settings.enabledApps.toList()..sort(),
         'include_api_keys': _includeApiKeys,
         'api_keys': _includeApiKeys ? settings.apiKeys : {},
@@ -122,6 +124,24 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
         final colorValue = e.value as int?;
         if (colorValue != null) {
           await settings.setNotificationColor(e.key, colorValue);
+        }
+      }
+
+      // Import per-app thresholds if present
+      final thresholds = data['app_thresholds'] as Map<String, dynamic>? ?? {};
+      for (final e in thresholds.entries) {
+        final thresholdValue = e.value as int?;
+        if (thresholdValue != null) {
+          await settings.setAppThreshold(e.key, thresholdValue);
+        }
+      }
+
+      // Import per-app cooldowns if present
+      final cooldowns = data['app_cooldowns'] as Map<String, dynamic>? ?? {};
+      for (final e in cooldowns.entries) {
+        final cooldownValue = e.value as int?;
+        if (cooldownValue != null && cooldownValue > 0) {
+          await settings.setAppCooldown(e.key, cooldownValue);
         }
       }
 

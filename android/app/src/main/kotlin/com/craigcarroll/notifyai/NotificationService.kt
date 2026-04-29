@@ -228,6 +228,10 @@ class NotificationService : NotificationListenerService() {
     // package for this duration so burst notifications accumulate into one summary.
     private val lastSummaryTime = mutableMapOf<String, Long>()
 
+    // Heartbeat to confirm service is still alive and log when running in background
+    private val HEARTBEAT_MS = 300000L // 5 minutes
+    private var heartbeatRunnable: Runnable? = null
+
     // ── SharedPreferences ──────────────────────────────────────────────────────
     private fun sp() = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
@@ -262,9 +266,14 @@ class NotificationService : NotificationListenerService() {
         } catch (_: Exception) { global }
     }
 
-    // Cooldown between summaries for the same package (default 30s).
-    private fun getSummaryCooldownMs(): Long {
-        return spInt("summary_cooldown_ms", 30000).toLong()
+    // Per-app cooldown override. Falls back to global summary_cooldown_ms.
+    private fun getCooldownForApp(pkg: String): Long {
+        val global = spInt("summary_cooldown_ms", 30000).toLong()
+        val raw = spStr("app_cooldowns", "{}")
+        return try {
+            val obj = JSONObject(raw)
+            if (obj.has(pkg)) obj.getInt(pkg).toLong() else global
+        } catch (_: Exception) { global }
     }
 
     // Flutter encodes StringList as LIST_IDENTIFIER + jsonArray (no separator)
@@ -310,6 +319,9 @@ class NotificationService : NotificationListenerService() {
         // Elevate to foreground service so OS doesn't kill this process
         startForegroundCompat()
 
+        // Start heartbeat to confirm service stays alive in background
+        startHeartbeat()
+
         // Dump raw pref value so we can verify spList parsing
         val rawApps = sp().getString("flutter.enabled_apps_set", null)
         log("info", "raw enabled_apps_set: ${rawApps?.take(120) ?: "(null — no apps saved yet)"}")
@@ -327,6 +339,29 @@ class NotificationService : NotificationListenerService() {
         }
         scheduleDigestAlarms()
         processRetryQueue()
+    }
+
+    private fun startHeartbeat() {
+        heartbeatRunnable?.let { handler.removeCallbacks(it) }
+        val runnable = object : Runnable {
+            override fun run() {
+                val selected = spList("enabled_apps_set")
+                val bufferCount = buffer.values.sumOf { it.getAllPendingNotifications().size }
+                log("info", "HEARTBEAT — service alive, monitoring ${selected.size} app(s), $bufferCount buffered notification(s)")
+                handler.postDelayed(this, HEARTBEAT_MS)
+            }
+        }
+        heartbeatRunnable = runnable
+        handler.postDelayed(runnable, HEARTBEAT_MS)
+        log("info", "Heartbeat started — logging every ${HEARTBEAT_MS / 1000}s")
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatRunnable?.let {
+            handler.removeCallbacks(it)
+            log("info", "Heartbeat stopped")
+        }
+        heartbeatRunnable = null
     }
 
     private fun startForegroundCompat() {
@@ -359,6 +394,7 @@ class NotificationService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        stopHeartbeat()
         log("warn", "Listener DISCONNECTED — requesting rebind")
         postStatusNotification("Notify AI reconnecting…", "Service was disconnected — reconnecting automatically")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -409,7 +445,7 @@ class NotificationService : NotificationListenerService() {
             val removed = group.removeNotificationByKey(sbn.key)
             val postCount = group.getAllPendingNotifications().size
             if (removed) {
-                log("info", "Removed notification ${sbn.key} from buffer for $pkg (system/app cancelled) pre=$preCount post=$postCount")
+                log("info", "Notification DISMISSED for $pkg — removed ${sbn.key} from buffer (system/app cancelled) pre=$preCount post=$postCount")
                 // If no notifications remain, also cancel our summary so the user
                 // isn't left with a stale summary after dismissing originals
                 if (group.getAllPendingNotifications().isEmpty()) {
@@ -805,17 +841,21 @@ class NotificationService : NotificationListenerService() {
 
                 // Cooldown check: after a summary is posted for this package, wait
                 // before allowing another summary so burst notifications accumulate.
-                val cooldownMs = getSummaryCooldownMs()
+                val cooldownMs = getCooldownForApp(pkg)
                 if (cooldownMs > 0) {
                     val lastSummary = lastSummaryTime[pkg] ?: 0L
                     val elapsed = System.currentTimeMillis() - lastSummary
                     if (elapsed < cooldownMs) {
                         val remaining = cooldownMs - elapsed
-                        log("info", "Cooldown active for $name — ${remaining}ms remaining, deferring summary")
+                        log("info", "Cooldown ACTIVE for $name — ${remaining}ms remaining of ${cooldownMs}ms, deferring summary")
                         debounce[pkg] = this
                         handler.postDelayed(this, remaining)
                         return
+                    } else {
+                        log("info", "Cooldown EXPIRED for $name — ${elapsed}ms elapsed since last summary (cooldown=${cooldownMs}ms)")
                     }
+                } else {
+                    log("info", "Cooldown IGNORED for $name — no cooldown configured")
                 }
 
                 debounce.remove(pkg)
@@ -897,6 +937,10 @@ class NotificationService : NotificationListenerService() {
                         postSummary(pkg, summary, allActions, totalCount, appIcon, notificationColor, notifId)
                         recordStat(pkg, intercepted = false, summarised = true)
                         log("success", "AI summary posted for $name: \"${summary.take(100)}\"")
+                        val cooldownMs = getCooldownForApp(pkg)
+                        if (cooldownMs > 0) {
+                            log("info", "Cooldown STARTING for $name — ${cooldownMs}ms cooldown active")
+                        }
                         lastSummaryTime[pkg] = System.currentTimeMillis()
 
                         // Clear dismissal tracking so retryDismiss / dismissRemainingActive

@@ -16,6 +16,7 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
   bool _loading = true;
   String _error = '';
   String _search = '';
+  bool _showEnabledOnly = false;
   final _searchCtrl = TextEditingController();
 
   // Icon cache — shared across all list items, persists across rebuilds
@@ -66,6 +67,25 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
           customThreshold: customThreshold,
           onSave: (value) {
             settings.setAppThreshold(packageName, value);
+          },
+        );
+      },
+    );
+  }
+
+  void _showCooldownPicker(BuildContext context, SettingsProvider settings, String packageName, String appName) {
+    final globalCooldown = settings.summaryCooldownMs;
+    final customCooldown = settings.getAppCooldown(packageName);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return _CooldownPickerDialog(
+          appName: appName,
+          globalCooldown: globalCooldown,
+          customCooldown: customCooldown,
+          onSave: (value) {
+            settings.setAppCooldown(packageName, value);
           },
         );
       },
@@ -141,9 +161,14 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
   }
 
   List<Map<String, String>> get _filtered {
-    if (_search.isEmpty) return _apps;
+    List<Map<String, String>> result = _apps;
+    if (_showEnabledOnly) {
+      final settings = context.read<SettingsProvider>();
+      result = result.where((a) => settings.enabledApps.contains(a['packageName'])).toList();
+    }
+    if (_search.isEmpty) return result;
     final q = _search.toLowerCase();
-    return _apps.where((a) =>
+    return result.where((a) =>
         (a['appName'] ?? '').toLowerCase().contains(q) ||
         (a['packageName'] ?? '').toLowerCase().contains(q)).toList();
   }
@@ -270,6 +295,38 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
             ),
           ),
 
+          // ── Filter chips ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Row(
+              children: [
+                FilterChip(
+                  label: Text('Enabled only',
+                      style: TextStyle(
+                          color: _showEnabledOnly ? Colors.white : Colors.white54,
+                          fontSize: 12)),
+                  selected: _showEnabledOnly,
+                  onSelected: (v) => setState(() => _showEnabledOnly = v),
+                  selectedColor: const Color(0xFF4A7A56),
+                  backgroundColor: const Color(0xFF2A2A2A),
+                  checkmarkColor: Colors.white,
+                  padding: EdgeInsets.zero,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                const SizedBox(width: 8),
+                if (selected.isNotEmpty)
+                  ActionChip(
+                    label: const Text('Clear list',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    onPressed: () => settings.setEnabledApps({}),
+                    backgroundColor: const Color(0xFF2A2A2A),
+                    padding: EdgeInsets.zero,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+              ],
+            ),
+          ),
+
           // ── App list ─────────────────────────────────────────────────────
           Expanded(
             child: _loading
@@ -388,6 +445,19 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                                           ),
                                           tooltip: 'Set notification color',
                                           onPressed: () => _showColorPicker(context, settings, pkg, name),
+                                        ),
+                                      // Cooldown picker button (only for selected apps)
+                                      if (isSelected)
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.timer,
+                                            color: settings.getAppCooldown(pkg) > 0
+                                                ? const Color(0xFF6B9E78)
+                                                : Colors.white38,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Set cooldown',
+                                          onPressed: () => _showCooldownPicker(context, settings, pkg, name),
                                         ),
                                       Checkbox(
                                         value: isSelected,
@@ -568,6 +638,126 @@ class _ThresholdPickerDialogState extends State<_ThresholdPickerDialog> {
         TextButton(
           onPressed: () {
             widget.onSave(_useCustom ? _value.round() : null);
+            Navigator.pop(context);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CooldownPickerDialog extends StatefulWidget {
+  final String appName;
+  final int globalCooldown;
+  final int customCooldown;
+  final void Function(int) onSave;
+
+  const _CooldownPickerDialog({
+    required this.appName,
+    required this.globalCooldown,
+    required this.customCooldown,
+    required this.onSave,
+  });
+
+  @override
+  State<_CooldownPickerDialog> createState() => _CooldownPickerDialogState();
+}
+
+class _CooldownPickerDialogState extends State<_CooldownPickerDialog> {
+  late bool _useCustom;
+  late double _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _useCustom = widget.customCooldown > 0;
+    _value = (_useCustom ? widget.customCooldown : widget.globalCooldown).toDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Cooldown for ${widget.appName}'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Use custom cooldown'),
+              subtitle: Text(
+                _useCustom
+                    ? 'Override global setting for this app'
+                    : 'Use global cooldown (${widget.globalCooldown ~/ 1000}s)',
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              value: _useCustom,
+              onChanged: (v) => setState(() => _useCustom = v),
+            ),
+            const SizedBox(height: 8),
+            if (_useCustom) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Wait ${_value.round() ~/ 1000}s before re-summarising',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF6B9E78),
+                  inactiveTrackColor: const Color(0xFF3A3A3A),
+                  thumbColor: const Color(0xFF6B9E78),
+                  overlayColor: const Color(0xFF6B9E78).withOpacity(0.2),
+                  trackHeight: 3,
+                ),
+                child: Slider(
+                  min: 5000,
+                  max: 120000,
+                  divisions: 23,
+                  value: _value,
+                  onChanged: (v) => setState(() => _value = v),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('5s', style: const TextStyle(color: Colors.white30, fontSize: 11)),
+                  Text('120s', style: const TextStyle(color: Colors.white30, fontSize: 11)),
+                ],
+              ),
+            ] else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Global: ${widget.globalCooldown ~/ 1000}s',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            widget.onSave(_useCustom ? _value.round() : 0);
             Navigator.pop(context);
           },
           child: const Text('Save'),
