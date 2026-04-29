@@ -924,6 +924,7 @@ class NotificationService : NotificationListenerService() {
                 }
             }
         }
+    }
 
         // Schedule runnable for NEW notifications or when the previous one expired.
         if (scheduleRunnable) {

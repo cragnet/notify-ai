@@ -5,7 +5,7 @@
   "packages": [
     {
       "name": "notify_ai",
-      "version": "1.0.0+1",
+      "version": "2.0.6+9",
       "dependencies": [
         "collection",
         "file_picker",
