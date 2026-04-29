@@ -780,45 +780,46 @@ class NotificationService : NotificationListenerService() {
             log("info", "Notification update for $name - keeping existing debounce timer")
         }
 
-        val runnable = Runnable {
-            val currentGroup = buffer[pkg] ?: return@Runnable
-            val threshold = getThresholdForApp(pkg)
+        val runnable = object : Runnable {
+            override fun run() {
+                val currentGroup = buffer[pkg] ?: return
+                val threshold = getThresholdForApp(pkg)
 
-            // Get all pending notifications for this app
-            val allNotifications = currentGroup.getAllPendingNotifications()
-            val totalCount = allNotifications.size
+                // Get all pending notifications for this app
+                val allNotifications = currentGroup.getAllPendingNotifications()
+                val totalCount = allNotifications.size
 
-            val bufferDebug = currentGroup.conversationBuffers.map { (k, v) -> "$k=${v.size}" }.joinToString(", ")
-            log("info", "RUNNABLE CHECK for $name: total=$totalCount, threshold=$threshold, buffers=[$bufferDebug], notifList=${currentGroup.notifications.size}")
-            allNotifications.forEachIndexed { i, it ->
-                log("debug", "  [$i] key=${it.sbnKey} conv=${it.conversationId} hash=${it.contentHash.take(8)}")
-            }
+                val bufferDebug = currentGroup.conversationBuffers.map { (k, v) -> "$k=${v.size}" }.joinToString(", ")
+                log("info", "RUNNABLE CHECK for $name: total=$totalCount, threshold=$threshold, buffers=[$bufferDebug], notifList=${currentGroup.notifications.size}")
+                allNotifications.forEachIndexed { i, it ->
+                    log("debug", "  [$i] key=${it.sbnKey} conv=${it.conversationId} hash=${it.contentHash.take(8)}")
+                }
 
-            // Simple threshold check - just need enough notifications total
-            if (totalCount < threshold) {
+                // Simple threshold check - just need enough notifications total
+                if (totalCount < threshold) {
+                    debounce.remove(pkg)
+                    debounceShortDelay.remove(pkg)
+                    log("info", "DEFERRING $name - only $totalCount total notifications, need $threshold")
+                    return
+                }
+
+                // Cooldown check: after a summary is posted for this package, wait
+                // before allowing another summary so burst notifications accumulate.
+                val cooldownMs = getSummaryCooldownMs()
+                if (cooldownMs > 0) {
+                    val lastSummary = lastSummaryTime[pkg] ?: 0L
+                    val elapsed = System.currentTimeMillis() - lastSummary
+                    if (elapsed < cooldownMs) {
+                        val remaining = cooldownMs - elapsed
+                        log("info", "Cooldown active for $name — ${remaining}ms remaining, deferring summary")
+                        debounce[pkg] = this
+                        handler.postDelayed(this, remaining)
+                        return
+                    }
+                }
+
                 debounce.remove(pkg)
                 debounceShortDelay.remove(pkg)
-                log("info", "DEFERRING $name - only $totalCount total notifications, need $threshold")
-                return@Runnable
-            }
-
-            // Cooldown check: after a summary is posted for this package, wait
-            // before allowing another summary so burst notifications accumulate.
-            val cooldownMs = getSummaryCooldownMs()
-            if (cooldownMs > 0) {
-                val lastSummary = lastSummaryTime[pkg] ?: 0L
-                val elapsed = System.currentTimeMillis() - lastSummary
-                if (elapsed < cooldownMs) {
-                    val remaining = cooldownMs - elapsed
-                    log("info", "Cooldown active for $name — ${remaining}ms remaining, deferring summary")
-                    debounce[pkg] = runnable
-                    handler.postDelayed(runnable, remaining)
-                    return@Runnable
-                }
-            }
-
-            debounce.remove(pkg)
-            debounceShortDelay.remove(pkg)
 
             // Get all notification keys to process and clear
             val processedKeys = allNotifications.map { it.sbnKey }.toSet()
