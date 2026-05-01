@@ -150,6 +150,9 @@ class NotificationService : NotificationListenerService() {
         val lastSummarizedKeys: MutableSet<String> = mutableSetOf()
         val dismissedSummarizedKeys: MutableSet<String> = mutableSetOf()
 
+        // Track keys we explicitly dismissed so onNotificationRemoved can ignore them.
+        val keysDismissedByApp: MutableSet<String> = mutableSetOf()
+
         fun getOrCreateNotificationId(conversationId: String?): Int {
             return conversationNotificationIds.getOrPut(conversationId) {
                 // Generate consistent ID based on package + conversation
@@ -421,9 +424,27 @@ class NotificationService : NotificationListenerService() {
             val preCount = group.getAllPendingNotifications().size
             log("debug", "onNotificationRemoved for $pkg key=${sbn.key} preCount=$preCount debounce=${debounce.containsKey(pkg)} lastSummarized=${group.lastSummarizedKeys.size}")
 
+            // Ignore removals for notifications we explicitly dismissed ourselves
+            // (e.g. via dismissRemainingActive or retryDismiss) so we don't cancel
+            // our own summary as a side-effect.
+            if (group.keysDismissedByApp.remove(sbn.key)) {
+                log("debug", "Ignored onNotificationRemoved for ${sbn.key} — dismissed by app")
+                return
+            }
+
+            // If a runnable is pending for this package, the buffer will be cleared
+            // when the runnable fires. Removing now would lose message content
+            // before the summary can be generated (e.g. WhatsApp stacking).
+            // Also skip summary-cancellation logic — a pending runnable means a new
+            // summary is about to be posted, so we should not cancel the current one.
+            if (debounce.containsKey(pkg)) {
+                log("info", "Skipped removing ${sbn.key} from buffer — runnable pending for $pkg")
+                return
+            }
+
             // If this notification contributed to the current summary, track its dismissal.
-            // When the user (or the app) has dismissed every original that produced the
-            // summary, cancel the summary too so it doesn't linger as stale.
+            // When the user has dismissed every original that produced the summary,
+            // cancel the summary too so it doesn't linger as stale.
             if (sbn.key in group.lastSummarizedKeys) {
                 group.dismissedSummarizedKeys.add(sbn.key)
                 if (group.dismissedSummarizedKeys.containsAll(group.lastSummarizedKeys)) {
@@ -432,14 +453,6 @@ class NotificationService : NotificationListenerService() {
                     group.dismissedSummarizedKeys.clear()
                     log("info", "All originals dismissed — cancelled summary for $pkg")
                 }
-            }
-
-            // If a runnable is pending for this package, the buffer will be cleared
-            // when the runnable fires. Removing now would lose message content
-            // before the summary can be generated (e.g. WhatsApp stacking).
-            if (debounce.containsKey(pkg)) {
-                log("info", "Skipped removing ${sbn.key} from buffer — runnable pending for $pkg")
-                return
             }
 
             val removed = group.removeNotificationByKey(sbn.key)
@@ -619,9 +632,11 @@ class NotificationService : NotificationListenerService() {
             if (spBool("dismiss_on_app_usage", true)) {
                 allNotifications.forEach { item ->
                     try {
+                        currentGroup.keysDismissedByApp.add(item.sbnKey)
                         cancelNotification(item.sbnKey)
                         log("info", "[TEST] Dismissed notification: ${item.sbnKey}")
                     } catch (e: Exception) {
+                        currentGroup.keysDismissedByApp.remove(item.sbnKey)
                         log("warn", "[TEST] Failed to dismiss ${item.sbnKey}: ${e.javaClass.simpleName}: ${e.message}")
                     }
                 }
@@ -896,12 +911,15 @@ class NotificationService : NotificationListenerService() {
                         return@forEach
                     }
                     try {
+                        currentGroup.keysDismissedByApp.add(item.sbnKey)
                         cancelNotification(item.sbnKey)
                         log("info", "Dismissed notification: ${item.sbnKey}")
                     } catch (e: SecurityException) {
+                        currentGroup.keysDismissedByApp.remove(item.sbnKey)
                         log("warn", "Failed to dismiss ${item.sbnKey}: SecurityException — listener may lack cancel permission")
                         active.add(item.sbnKey)
                     } catch (e: Exception) {
+                        currentGroup.keysDismissedByApp.remove(item.sbnKey)
                         log("warn", "Failed to dismiss ${item.sbnKey}: ${e.javaClass.simpleName}: ${e.message}")
                         active.add(item.sbnKey)
                     }
@@ -926,6 +944,9 @@ class NotificationService : NotificationListenerService() {
                 if (summary != null) {
                     if (isNoChangeResponse(summary)) {
                         log("info", "AI indicated no change for $name — skipping notification: \"${summary.take(80)}\"")
+                        // Clear tracking so stale keys don't accidentally cancel the existing summary
+                        currentGroup.lastSummarizedKeys.clear()
+                        currentGroup.dismissedSummarizedKeys.clear()
                     } else {
                         // Store summary for potential future updates
                         currentGroup.summary = summary
@@ -992,14 +1013,35 @@ class NotificationService : NotificationListenerService() {
      * Returns true if the response should be skipped (no meaningful update).
      */
     /**
-     * Detects WhatsApp (and similar) placeholder text that appears when
-     * notifications are stacked, e.g. "2 new messages", "3 new messages".
-     * These contain no actual message content and should not be summarized.
+     * Detects WhatsApp (and similar) placeholder or privacy-screened text
+     * that contains no actual message content and should not be summarized.
+     * Covers: stacking placeholders ("2 new messages") and lock-screen
+     * privacy blur ("Sensitive data hidden").
      */
     private fun isWhatsAppPlaceholder(text: String): Boolean {
         val trimmed = text.trim()
-        // Match patterns like: "2 new messages", "3 new messages", "1 new message"
-        return Regex("^\\d+\\s+new\\s+messages?$", RegexOption.IGNORE_CASE).matches(trimmed)
+        // Stacking placeholders: "2 new messages", "3 new messages", "1 new message"
+        if (Regex("^\\d+\\s+new\\s+messages?$", RegexOption.IGNORE_CASE).matches(trimmed)) return true
+        // Privacy / sensitive-content blur placeholders across OEMs and apps
+        val privacyBlurPatterns = listOf(
+            "sensitive data hidden",
+            "sensitive data has been concealed",
+            "content hidden",
+            "contents hidden",
+            "hidden content",
+            "notification content hidden",
+            "message content hidden",
+            "private notification",
+            "lock screen notification",
+            "unlock to view",
+            "unlock to read",
+            "hidden for privacy",
+            "protected content",
+            "secure notification",
+            "content protected by lock"
+        )
+        val lower = trimmed.lowercase()
+        return privacyBlurPatterns.any { lower.contains(it) }
     }
 
     private fun isNoChangeResponse(text: String): Boolean {
@@ -1066,14 +1108,17 @@ class NotificationService : NotificationListenerService() {
      */
     private fun retryDismiss(pkg: String, keys: Set<String>) {
         try {
+            val group = buffer[pkg] ?: return
             val active = getActiveNotifications()?.filter { it.packageName == pkg && it.key in keys } ?: emptyList()
             if (active.isEmpty()) return
             log("warn", "Retrying dismiss for ${active.size} stuck notification(s) from $pkg")
             active.forEach { sbn ->
                 try {
+                    group.keysDismissedByApp.add(sbn.key)
                     cancelNotification(sbn.key)
                     log("info", "Retry dismiss succeeded: ${sbn.key}")
                 } catch (e: Exception) {
+                    group.keysDismissedByApp.remove(sbn.key)
                     log("error", "Retry dismiss FAILED for ${sbn.key}: ${e.javaClass.simpleName}: ${e.message}")
                 }
             }
@@ -1090,6 +1135,7 @@ class NotificationService : NotificationListenerService() {
      */
     private fun dismissRemainingActive(pkg: String, summaryNotifId: Int, skipKeys: Set<String> = emptySet()) {
         try {
+            val group = buffer[pkg] ?: return
             val active = getActiveNotifications()?.filter {
                 it.packageName == pkg && it.id != summaryNotifId && it.key !in skipKeys
             } ?: emptyList()
@@ -1097,9 +1143,11 @@ class NotificationService : NotificationListenerService() {
             log("info", "dismissRemainingActive: found ${active.size} remaining notification(s) from $pkg")
             active.forEach { sbn ->
                 try {
+                    group.keysDismissedByApp.add(sbn.key)
                     cancelNotification(sbn.key)
                     log("info", "dismissRemainingActive: cancelled ${sbn.key}")
                 } catch (e: Exception) {
+                    group.keysDismissedByApp.remove(sbn.key)
                     log("warn", "dismissRemainingActive: failed to cancel ${sbn.key}: ${e.javaClass.simpleName}")
                 }
             }
