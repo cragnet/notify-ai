@@ -157,6 +157,51 @@ class _PromptSettingsScreenState extends State<PromptSettingsScreen> {
                       _VariableItem('{length_instruction}', 'Full length instruction text for the AI'),
                       const Divider(color: Colors.white10, height: 16),
                       _VariableItem('{hint}', 'Concise length hint (e.g., "in one very brief sentence")'),
+                      const Divider(color: Colors.white10, height: 16),
+                      _VariableItem('{history}', 'Previous conversation context when rolling history is enabled'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                _Label('Rolling History'),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Enable rolling history',
+                                  style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Remember recent messages per conversation so summaries include context even after the buffer is cleared.',
+                                  style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Consumer<SettingsProvider>(
+                            builder: (context, settings, _) => Switch(
+                              value: settings.rollingHistoryEnabled,
+                              onChanged: (v) => settings.setRollingHistoryEnabled(v),
+                              activeColor: const Color(0xFF6B9E78),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),

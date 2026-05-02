@@ -459,6 +459,30 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
                                           tooltip: 'Set cooldown',
                                           onPressed: () => _showCooldownPicker(context, settings, pkg, name),
                                         ),
+                                      // Rolling history toggle (only for selected apps)
+                                      if (isSelected)
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.history,
+                                            color: settings.rollingHistoryEnabled && settings.isRollingHistoryEnabledForApp(pkg)
+                                                ? const Color(0xFF6B9E78)
+                                                : settings.rollingHistoryEnabled
+                                                    ? Colors.white38
+                                                    : Colors.white24,
+                                            size: 20,
+                                          ),
+                                          tooltip: settings.rollingHistoryEnabled
+                                              ? (settings.isRollingHistoryEnabledForApp(pkg)
+                                                  ? 'Rolling history on'
+                                                  : 'Rolling history off')
+                                              : 'Rolling history disabled globally',
+                                          onPressed: settings.rollingHistoryEnabled
+                                              ? () => settings.toggleRollingHistoryForApp(
+                                                  pkg,
+                                                  !settings.isRollingHistoryEnabledForApp(pkg),
+                                                )
+                                              : null,
+                                        ),
                                       Checkbox(
                                         value: isSelected,
                                         onChanged: (_) => settings.toggleApp(pkg),

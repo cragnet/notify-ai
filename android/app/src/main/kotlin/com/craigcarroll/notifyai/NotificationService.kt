@@ -47,6 +47,10 @@ class NotificationService : NotificationListenerService() {
         private const val MAX_BUFFERED_GLOBAL = 200
         private const val MAX_BUFFER_AGE_MS = 86400000L // 24 hours
 
+        // Rolling history cache limits
+        private const val MAX_HISTORY_PER_CONVERSATION = 30
+        private const val MAX_HISTORY_AGE_MS = 30 * 60 * 1000L // 30 minutes
+
         // Map for wrapping original notification actions so we can cancel our summary
         // when the user taps an action on it.
         val actionMap = mutableMapOf<String, PendingIntent>()
@@ -131,6 +135,13 @@ class NotificationService : NotificationListenerService() {
         }
     }
 
+    data class HistoryItem(
+        val title: String,
+        val text: String,
+        val conversationId: String?,
+        val timestamp: Long
+    )
+
     data class NotificationGroup(
         val notifications: MutableList<NotificationItem> = mutableListOf(),
         var summary: String? = null,
@@ -141,6 +152,9 @@ class NotificationService : NotificationListenerService() {
     ) {
         // Track notifications per conversation for per-conversation thresholds
         val conversationBuffers: MutableMap<String?, MutableList<NotificationItem>> = mutableMapOf()
+
+        // Rolling history cache: survives buffer clears so AI sees conversation context
+        val historyCache: MutableMap<String?, MutableList<HistoryItem>> = mutableMapOf()
 
         // Track notification IDs per conversation to update existing summaries
         val conversationNotificationIds: MutableMap<String?, Int> = mutableMapOf()
@@ -214,6 +228,38 @@ class NotificationService : NotificationListenerService() {
             }
             conversationBuffers.entries.removeAll { it.value.isEmpty() }
         }
+
+        fun addToHistory(item: NotificationItem) {
+            val convId = item.conversationId
+            val historyItem = HistoryItem(
+                title = item.title,
+                text = item.text,
+                conversationId = convId,
+                timestamp = item.timestamp
+            )
+            historyCache.getOrPut(convId) { mutableListOf() }.add(historyItem)
+        }
+
+        fun pruneHistory(maxAgeMs: Long, maxPerConversation: Int) {
+            val now = System.currentTimeMillis()
+            historyCache.values.forEach { list ->
+                list.removeAll { now - it.timestamp > maxAgeMs }
+            }
+            historyCache.values.forEach { list ->
+                while (list.size > maxPerConversation) {
+                    list.removeAt(0)
+                }
+            }
+            historyCache.entries.removeAll { it.value.isEmpty() }
+        }
+
+        fun getHistoryForConversation(conversationId: String?): List<HistoryItem> {
+            return historyCache[conversationId]?.toList() ?: emptyList()
+        }
+
+        fun getAllHistory(): List<HistoryItem> {
+            return historyCache.values.flatMap { it.toList() }
+        }
     }
 
     // Per-package buffer for grouped notifications
@@ -277,6 +323,13 @@ class NotificationService : NotificationListenerService() {
             val obj = JSONObject(raw)
             if (obj.has(pkg)) obj.getInt(pkg).toLong() else global
         } catch (_: Exception) { global }
+    }
+
+    // Rolling history: global switch with per-app disable list
+    private fun isRollingHistoryEnabled(pkg: String): Boolean {
+        if (!spBool("rolling_history_enabled", false)) return false
+        val disabledApps = spList("rolling_history_disabled_apps")
+        return !disabledApps.contains(pkg)
     }
 
     // Flutter encodes StringList as LIST_IDENTIFIER + jsonArray (no separator)
@@ -535,6 +588,11 @@ class NotificationService : NotificationListenerService() {
             }
         }
 
+        // 4. Prune rolling history caches per conversation
+        buffer.values.forEach { group ->
+            group.pruneHistory(MAX_HISTORY_AGE_MS, MAX_HISTORY_PER_CONVERSATION)
+        }
+
         // Drop empty groups to free the map entry itself
         buffer.entries.removeAll { it.value.getAllPendingNotifications().isEmpty() }
     }
@@ -767,6 +825,7 @@ class NotificationService : NotificationListenerService() {
             // Add new notification to conversation buffer
             group.addToConversation(newItem)
             group.notifications.add(newItem)
+            group.addToHistory(newItem)
             log("info", "Added new notification to conversation '$conversationId' for $name")
         } else {
             // Update existing notification - but first check if content actually changed using hash
@@ -780,6 +839,7 @@ class NotificationService : NotificationListenerService() {
             // Keep the old notification (it represents a real message) and add the new one.
             group.addToConversation(newItem)
             group.notifications.add(newItem)
+            group.addToHistory(newItem)
             log("info", "Added updated notification to conversation '$conversationId' for $name (content changed, kept old)")
         }
 
@@ -1301,17 +1361,46 @@ class NotificationService : NotificationListenerService() {
             uniqueTexts.joinToString("\n") { "• ${it.title}: ${it.text}" }
         }
 
+        // Build rolling history context (only for non-update summaries — update mode uses previousSummary)
+        val rollingHistoryEnabled = previousSummary == null && isRollingHistoryEnabled(pkg)
+        val historyMsgs = if (rollingHistoryEnabled) {
+            val group = buffer[pkg]
+            val currentKeys = meaningfulNotifications.map { "${it.title}:${it.text}" }.toSet()
+            val historyItems = group?.getAllHistory()?.filter { h ->
+                val key = "${h.title}:${h.text}"
+                key !in currentKeys
+            } ?: emptyList()
+            if (historyItems.isNotEmpty()) {
+                val historyGrouped = historyItems.groupBy { it.conversationId ?: it.title }
+                if (historyGrouped.size > 1) {
+                    historyGrouped.entries.joinToString("\n\n") { (sender, notifs) ->
+                        val uniqueTexts = notifs.distinctBy { it.text }
+                        val messageLines = uniqueTexts.joinToString("\n") { "• ${it.text}" }
+                        "**$sender:**\n$messageLines"
+                    }
+                } else {
+                    val uniqueTexts = historyItems.distinctBy { it.text }
+                    uniqueTexts.joinToString("\n") { "• ${it.title}: ${it.text}" }
+                }
+            } else ""
+        } else ""
+        val hasHistory = historyMsgs.isNotEmpty()
+
         val customPrompt = if (isDigest) spStr("digest_prompt", "") else spStr("custom_prompt", "")
 
         // Debug: log what we're sending
         log("info", "Building prompt for $name with ${meaningfulNotifications.size} meaningful notifications (was ${notifications.size}) from ${groupedBySender.size} sender(s)")
         log("info", "Notifications content: ${msgs.take(200)}")
         log("info", "msgs variable length: ${msgs.length} chars")
+        if (hasHistory) {
+            log("info", "Rolling history: ${historyMsgs.length} chars, ${historyMsgs.count { it == '•' }} items")
+        }
 
         // Build prompt - keep it simple and direct
         // Custom prompt variables available:
         //   {app_name}          - Display name of the app (e.g., "WhatsApp")
         //   {notifications}     - Formatted list of notifications as bullet points
+        //   {history}           - Previous conversation context when rolling history is enabled
         //   {count}             - Number of notifications being summarized
         //   {length}            - Summary length setting (1=brief, 2=balanced, 3=detailed)
         //   {length_instruction} - Full length instruction text for the AI
@@ -1328,11 +1417,23 @@ class NotificationService : NotificationListenerService() {
 - Ignore metadata like "(2 messages)" or "2 new messages" prefixes
 - Summarize naturally as a coherent update"""
 
+        val fullMsgs = if (hasHistory) {
+            "Previous conversation context:\n$historyMsgs\n\nCurrent notifications:\n$msgs"
+        } else {
+            msgs
+        }
+
         val prompt = if (customPrompt.isNotEmpty()) {
-            // User-defined custom prompt - substitute variables (including {instructions})
+            val hasHistoryVar = customPrompt.contains("{history}")
+            val effectiveMsgs = if (!hasHistoryVar && hasHistory) {
+                fullMsgs
+            } else {
+                msgs
+            }
             customPrompt
                 .replace("{app_name}", name)
-                .replace("{notifications}", msgs)
+                .replace("{notifications}", effectiveMsgs)
+                .replace("{history}", historyMsgs)
                 .replace("{count}", notifications.size.toString())
                 .replace("{length}", length.toString())
                 .replace("{length_instruction}", lengthInstruction)
@@ -1347,7 +1448,7 @@ Context: These notifications may span multiple apps and conversations. Group rel
 
 App: $name
 Notifications:
-$msgs
+$fullMsgs
 Total count: ${notifications.size}
 
 Provide a well-structured digest. Highlight time-sensitive items and anything requiring action. Use clear sections if multiple topics are involved. $hint."""
@@ -1370,7 +1471,7 @@ Instructions:
 $instructions
 
 Notifications:
-$msgs
+$fullMsgs
 
 Provide a clear, concise summary."""
             }

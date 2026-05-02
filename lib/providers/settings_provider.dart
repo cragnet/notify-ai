@@ -67,6 +67,12 @@ Provide a well-structured digest. Highlight time-sensitive items and anything re
   Map<String, int?> notificationColors = {}; // packageName -> color value
   Map<String, int> appThresholds = {}; // packageName -> custom threshold (null means use global)
 
+  // Rolling history settings
+  bool rollingHistoryEnabled = false;
+  List<String> rollingHistoryDisabledApps = []; // packages excluded from rolling history
+  int rollingHistoryMaxMessages = 30;
+  int rollingHistoryMaxAgeMinutes = 30;
+
   // Default prompt template
   static const String defaultPrompt = '''Summarize the following notifications concisely.
 
@@ -132,6 +138,12 @@ Be brief but informative.''';
           MapEntry(key, value as int));
       } catch (_) {}
     }
+
+    // Load rolling history settings
+    rollingHistoryEnabled = _prefs.getBool('rolling_history_enabled') ?? false;
+    rollingHistoryDisabledApps = _prefs.getStringList('rolling_history_disabled_apps') ?? [];
+    rollingHistoryMaxMessages = _prefs.getInt('rolling_history_max_messages') ?? 30;
+    rollingHistoryMaxAgeMinutes = _prefs.getInt('rolling_history_max_age_minutes') ?? 30;
 
     for (final p in ['claude', 'openai', 'ollama', 'openrouter', 'gemini', 'gemini_nano', 'local']) {
       final model = _prefs.getString('model_$p');
@@ -475,6 +487,46 @@ Be brief but informative.''';
     final colorsMap = notificationColors.map((key, value) =>
       MapEntry(key, value));
     await _prefs.setString('notification_colors', jsonEncode(colorsMap));
+  }
+
+  // Rolling history helpers
+  bool isRollingHistoryEnabledForApp(String packageName) {
+    if (!rollingHistoryEnabled) return false;
+    return !rollingHistoryDisabledApps.contains(packageName);
+  }
+
+  Future<void> setRollingHistoryEnabled(bool v) async {
+    rollingHistoryEnabled = v;
+    await _prefs.setBool('rolling_history_enabled', v);
+    notifyListeners();
+  }
+
+  Future<void> setRollingHistoryDisabledApps(List<String> apps) async {
+    rollingHistoryDisabledApps = List<String>.from(apps);
+    await _prefs.setStringList('rolling_history_disabled_apps', rollingHistoryDisabledApps);
+    notifyListeners();
+  }
+
+  Future<void> toggleRollingHistoryForApp(String packageName, bool enabled) async {
+    final updated = List<String>.from(rollingHistoryDisabledApps);
+    if (enabled) {
+      updated.remove(packageName);
+    } else {
+      if (!updated.contains(packageName)) updated.add(packageName);
+    }
+    await setRollingHistoryDisabledApps(updated);
+  }
+
+  Future<void> setRollingHistoryMaxMessages(int v) async {
+    rollingHistoryMaxMessages = v;
+    await _prefs.setInt('rolling_history_max_messages', v);
+    notifyListeners();
+  }
+
+  Future<void> setRollingHistoryMaxAgeMinutes(int v) async {
+    rollingHistoryMaxAgeMinutes = v;
+    await _prefs.setInt('rolling_history_max_age_minutes', v);
+    notifyListeners();
   }
 
   // Method to get API keys for export
