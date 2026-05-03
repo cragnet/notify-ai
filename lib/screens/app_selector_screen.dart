@@ -388,107 +388,113 @@ class _AppSelectorScreenState extends State<AppSelectorScreen> {
 
                               final notificationColor = settings.getNotificationColor(pkg);
 
-                              return InkWell(
-                                onTap: () => settings.toggleApp(pkg),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 6),
-                                  child: Row(
-                                    children: [
-                                      _AppIcon(
-                                        packageName: pkg,
-                                        appName: name,
-                                        iconFuture: _iconCache.putIfAbsent(
-                                          pkg,
-                                          () => PermissionsService.getAppIcon(pkg),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 6),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: InkWell(
+                                        onTap: () => settings.toggleApp(pkg),
+                                        child: Row(
                                           children: [
-                                            Text(name,
-                                                style: const TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w500)),
-                                            Text(pkg,
-                                                style: const TextStyle(
-                                                    color: Colors.white24,
-                                                    fontSize: 11),
-                                                overflow: TextOverflow.ellipsis),
+                                            _AppIcon(
+                                              packageName: pkg,
+                                              appName: name,
+                                              iconFuture: _iconCache.putIfAbsent(
+                                                pkg,
+                                                () => PermissionsService.getAppIcon(pkg),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(name,
+                                                      style: const TextStyle(
+                                                          fontSize: 15,
+                                                          fontWeight: FontWeight.w500)),
+                                                  Text(pkg,
+                                                      style: const TextStyle(
+                                                          color: Colors.white24,
+                                                          fontSize: 11),
+                                                      overflow: TextOverflow.ellipsis),
+                                                ],
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
-                                      // Threshold picker button (only for selected apps)
-                                      if (isSelected)
-                                        IconButton(
-                                          icon: Icon(
-                                            Icons.filter_list,
-                                            color: settings.getAppThreshold(pkg) != null
-                                                ? const Color(0xFF6B9E78)
-                                                : Colors.white38,
-                                            size: 20,
-                                          ),
-                                          tooltip: 'Set threshold',
-                                          onPressed: () => _showThresholdPicker(context, settings, pkg, name),
+                                    ),
+                                    // Threshold picker button (only for selected apps)
+                                    if (isSelected)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.filter_list,
+                                          color: settings.getAppThreshold(pkg) != null
+                                              ? const Color(0xFF6B9E78)
+                                              : Colors.white38,
+                                          size: 20,
                                         ),
-                                      // Color picker button (only for selected apps)
-                                      if (isSelected)
-                                        IconButton(
-                                          icon: Icon(
-                                            Icons.color_lens,
-                                            color: notificationColor != null
-                                                ? Color(notificationColor)
-                                                : Colors.white38,
-                                            size: 20,
-                                          ),
-                                          tooltip: 'Set notification color',
-                                          onPressed: () => _showColorPicker(context, settings, pkg, name),
-                                        ),
-                                      // Cooldown picker button (only for selected apps)
-                                      if (isSelected)
-                                        IconButton(
-                                          icon: Icon(
-                                            Icons.timer,
-                                            color: settings.getAppCooldown(pkg) > 0
-                                                ? const Color(0xFF6B9E78)
-                                                : Colors.white38,
-                                            size: 20,
-                                          ),
-                                          tooltip: 'Set cooldown',
-                                          onPressed: () => _showCooldownPicker(context, settings, pkg, name),
-                                        ),
-                                      // Rolling history toggle (only for selected apps)
-                                      if (isSelected)
-                                        IconButton(
-                                          icon: Icon(
-                                            Icons.history,
-                                            color: settings.rollingHistoryEnabled && settings.isRollingHistoryEnabledForApp(pkg)
-                                                ? const Color(0xFF6B9E78)
-                                                : settings.rollingHistoryEnabled
-                                                    ? Colors.white38
-                                                    : Colors.white24,
-                                            size: 20,
-                                          ),
-                                          tooltip: settings.rollingHistoryEnabled
-                                              ? (settings.isRollingHistoryEnabledForApp(pkg)
-                                                  ? 'Rolling history on'
-                                                  : 'Rolling history off')
-                                              : 'Rolling history disabled globally',
-                                          onPressed: settings.rollingHistoryEnabled
-                                              ? () => settings.toggleRollingHistoryForApp(
-                                                  pkg,
-                                                  !settings.isRollingHistoryEnabledForApp(pkg),
-                                                )
-                                              : null,
-                                        ),
-                                      Checkbox(
-                                        value: isSelected,
-                                        onChanged: (_) => settings.toggleApp(pkg),
+                                        tooltip: 'Set threshold',
+                                        onPressed: () => _showThresholdPicker(context, settings, pkg, name),
                                       ),
-                                    ],
-                                  ),
+                                    // Color picker button (only for selected apps)
+                                    if (isSelected)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.color_lens,
+                                          color: notificationColor != null
+                                              ? Color(notificationColor)
+                                              : Colors.white38,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Set notification color',
+                                        onPressed: () => _showColorPicker(context, settings, pkg, name),
+                                      ),
+                                    // Cooldown picker button (only for selected apps)
+                                    if (isSelected)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.timer,
+                                          color: settings.getAppCooldown(pkg) > 0
+                                              ? const Color(0xFF6B9E78)
+                                              : Colors.white38,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Set cooldown',
+                                        onPressed: () => _showCooldownPicker(context, settings, pkg, name),
+                                      ),
+                                    // Rolling history toggle (only for selected apps)
+                                    if (isSelected)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.history,
+                                          color: settings.rollingHistoryEnabled && settings.isRollingHistoryEnabledForApp(pkg)
+                                              ? const Color(0xFF6B9E78)
+                                              : settings.rollingHistoryEnabled
+                                                  ? Colors.white38
+                                                  : Colors.white24,
+                                          size: 20,
+                                        ),
+                                        tooltip: settings.rollingHistoryEnabled
+                                            ? (settings.isRollingHistoryEnabledForApp(pkg)
+                                                ? 'Rolling history on'
+                                                : 'Rolling history off')
+                                            : 'Rolling history disabled globally',
+                                        onPressed: settings.rollingHistoryEnabled
+                                            ? () => settings.toggleRollingHistoryForApp(
+                                                pkg,
+                                                !settings.isRollingHistoryEnabledForApp(pkg),
+                                              )
+                                            : null,
+                                      ),
+                                    Checkbox(
+                                      value: isSelected,
+                                      onChanged: (_) => settings.toggleApp(pkg),
+                                    ),
+                                  ],
                                 ),
                               );
                             },
