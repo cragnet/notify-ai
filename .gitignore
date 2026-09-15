@@ -1,2 +1,18 @@
+# Build
 build/
-build/
+.dart_tool/
+.flutter-plugins-dependencies
+
+# Android local config (contains machine-specific paths)
+android/local.properties
+
+# Flutter generated
+**/generated_plugin_registrant.*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
